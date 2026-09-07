@@ -34,6 +34,9 @@ export default function RoutePanel({
                 <span className="route-card-distance">{route.distanceMiles} MI</span>
               </div>
               <p className="route-card-description">{route.description}</p>
+              <div className="route-card-stats">
+                <span className="route-card-stat">{route.cornerCount} CORNERS</span>
+              </div>
             </button>
           );
         })}
