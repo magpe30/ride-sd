@@ -44,3 +44,6 @@ next-env.d.ts
 # and scripts/style/build-style.mjs
 /public/maplibre/
 /public/map/style.json
+
+# personal ride recordings — dev/test fixtures only, never committed
+*.gpx
