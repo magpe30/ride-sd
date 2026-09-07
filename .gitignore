@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated at predev/prebuild time — see scripts/copy-maplibre-worker.mjs
+# and scripts/style/build-style.mjs
+/public/maplibre/
+/public/map/style.json
