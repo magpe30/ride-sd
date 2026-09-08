@@ -17,6 +17,11 @@ export type Route = {
   cornerCount: number;
   description: string;
   line: LineString;
+  // Human-readable labels for the two directions a ride can be analyzed
+  // in ("forward" = the line's own coordinate order, "reverse" = the
+  // opposite) — riders think in terms of which way they went, not
+  // arc-length sign.
+  directionLabels: { forward: string; reverse: string };
 };
 
 export const routes: Route[] = [
@@ -32,6 +37,10 @@ export const routes: Route[] = [
     description:
       "Climb South Grade Road from Hwy 76, crest near the summit junction, and descend East Grade Road toward Lake Henshaw.",
     line: (palomarMountainLoop as RouteGeometry).geometry,
+    directionLabels: {
+      forward: "SOUTH GRADE → EAST GRADE",
+      reverse: "EAST GRADE → SOUTH GRADE",
+    },
   },
   {
     id: "sunrise-highway",
@@ -44,6 +53,10 @@ export const routes: Route[] = [
     description:
       "A high-country ridgeline run through Mount Laguna, with long sightlines down into the Anza-Borrego desert.",
     line: (sunriseHighway as RouteGeometry).geometry,
+    directionLabels: {
+      forward: "I-8 → MT. LAGUNA (UPHILL)",
+      reverse: "MT. LAGUNA → I-8 (DOWNHILL)",
+    },
   },
   {
     id: "montezuma-valley-road",
@@ -57,6 +70,10 @@ export const routes: Route[] = [
     description:
       "A steep switchback descent from the Santa Ysabel highlands down into Borrego Springs and the desert floor.",
     line: (montezumaValleyRoad as RouteGeometry).geometry,
+    directionLabels: {
+      forward: "TOWARD BORREGO (DOWNHILL)",
+      reverse: "TOWARD SANTA YSABEL (UPHILL)",
+    },
   },
   {
     id: "banner-grade",
@@ -68,5 +85,9 @@ export const routes: Route[] = [
     description:
       "Drops out of Julian through tight switchbacks into Banner and Sentenac Canyon toward Scissors Crossing.",
     line: (bannerGrade as RouteGeometry).geometry,
+    directionLabels: {
+      forward: "TOWARD JULIAN (UPHILL)",
+      reverse: "TOWARD SCISSORS X'ING (DOWNHILL)",
+    },
   },
 ];

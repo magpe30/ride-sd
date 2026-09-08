@@ -72,3 +72,23 @@ export function pointAtArcLength(
 
   return line[line.length - 1];
 }
+
+// Extracts the portion of a line between two arc-length positions,
+// preserving the original vertices in that range (not just a straight
+// chord between the endpoints) — used to highlight a specific corner's
+// real geometry on the map.
+export function sliceLineByArcLength(
+  line: readonly Position[],
+  cumulative: readonly number[],
+  startMeters: number,
+  endMeters: number
+): Position[] {
+  const result: Position[] = [pointAtArcLength(line, cumulative, startMeters)];
+
+  for (let i = 0; i < line.length; i += 1) {
+    if (cumulative[i] > startMeters && cumulative[i] < endMeters) result.push(line[i]);
+  }
+
+  result.push(pointAtArcLength(line, cumulative, endMeters));
+  return result;
+}
