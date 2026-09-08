@@ -47,3 +47,28 @@ export function cumulativeDistancesMeters(coordinates: readonly Position[]): num
   }
   return cumulative;
 }
+
+// Inverse of arc-length parameterization: walks a line's precomputed
+// cumulative distances to find the point at a given distance along it,
+// interpolating within whichever segment contains that distance.
+export function pointAtArcLength(
+  line: readonly Position[],
+  cumulative: readonly number[],
+  targetArcLengthMeters: number
+): Position {
+  const total = cumulative[cumulative.length - 1];
+  const clamped = Math.max(0, Math.min(total, targetArcLengthMeters));
+
+  for (let i = 1; i < cumulative.length; i += 1) {
+    if (cumulative[i] >= clamped) {
+      const segStart = cumulative[i - 1];
+      const segEnd = cumulative[i];
+      const t = segEnd > segStart ? (clamped - segStart) / (segEnd - segStart) : 0;
+      const a = line[i - 1];
+      const b = line[i];
+      return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    }
+  }
+
+  return line[line.length - 1];
+}

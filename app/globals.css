@@ -215,3 +215,107 @@ body {
   letter-spacing: 0.08em;
   color: var(--neon-cyan);
 }
+
+.upload-panel {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 10;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: linear-gradient(165deg, var(--chrome-panel), var(--chrome-void));
+  border: 1px solid var(--chrome-panel-border);
+  border-left: 3px solid var(--neon-cyan);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  padding: 14px 16px;
+}
+
+.upload-panel-input {
+  display: none;
+}
+
+.upload-panel-button {
+  font-family: var(--font-display-stack);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--chrome-text);
+  background: linear-gradient(135deg, rgba(47, 224, 255, 0.18), transparent);
+  border: 1px solid rgba(47, 224, 255, 0.45);
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.upload-panel-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(47, 224, 255, 0.3), transparent);
+}
+
+.upload-panel-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.upload-panel-status {
+  margin: 0;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--chrome-text-muted);
+}
+
+.upload-panel-status--error {
+  color: #ff8080;
+}
+
+.upload-panel-rides {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.upload-panel-ride {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--chrome-panel-border);
+  border-radius: 2px;
+}
+
+.upload-panel-ride-swatch {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.upload-panel-ride-label {
+  flex: 1;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 11px;
+  color: var(--chrome-text-muted);
+}
+
+.upload-panel-ride-remove {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--chrome-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.upload-panel-ride-remove:hover {
+  color: var(--chrome-text);
+}
