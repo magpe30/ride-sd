@@ -326,7 +326,7 @@ body {
   right: 20px;
   z-index: 10;
   width: 320px;
-  max-height: calc(100vh - 40px);
+  max-height: calc(100vh - 112px);
   display: flex;
   flex-direction: column;
   background: linear-gradient(165deg, var(--chrome-panel), var(--chrome-void));
@@ -515,6 +515,8 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+  width: 52px;
+  flex-shrink: 0;
   font-family: var(--font-geist-sans), sans-serif;
   font-size: 11px;
   color: var(--chrome-text-muted);

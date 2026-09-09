@@ -105,7 +105,7 @@ export default function CornerPanel({ loadedRides, selectedCorner, onSelectCorne
           </div>
           <div className="corner-panel-detail-grid">
             <div className="corner-panel-detail-row corner-panel-detail-row--header">
-              <span />
+              <span className="corner-panel-detail-label" />
               {loadedRides.map((loaded) => (
                 <span
                   key={loaded.id}
