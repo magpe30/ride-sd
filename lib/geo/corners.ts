@@ -38,6 +38,17 @@ const TURN_THRESHOLD_DEG_PER_STEP = 4;
 const MIN_CORNER_STEPS = 2;
 const MERGE_GAP_STEPS = 2;
 
+// A run can end up spanning hundreds of meters at a very shallow net
+// angle when a long, nearly-straight stretch has enough digitization
+// noise to intermittently cross the turn threshold, and the merge-gap
+// bridging above stitches those noise blips into one "corner." A real
+// corner — even a gentle sweeper — turns at a reasonably steady rate;
+// checked against all four routes, there's a clean, order-of-magnitude
+// gap in (angle / length) between these artifacts and genuine corners
+// at around this value, with zero false positives on Sunrise Highway's
+// tightly-clustered real corners (all 0.29-0.72 deg/m).
+const MIN_SHARPNESS_DEG_PER_METER = 0.05;
+
 type ResampledPoint = {
   position: Position;
   arcLengthMeters: number;
@@ -120,32 +131,90 @@ export function detectCorners(coordinates: readonly Position[]): Corner[] {
   // located at points[k + 1].
   const pointIndexForTurnRate = (k: number) => k + 1;
 
-  const corners: Corner[] = [];
+  const candidates: Omit<Corner, "index">[] = [];
   let runStart = -1;
 
+  // A run is grouped purely by turn *magnitude* crossing the threshold,
+  // so a tight left hairpin immediately followed by a tight right
+  // hairpin (an S-curve) lands in one run — and at the reversal point,
+  // the turn rate passes through zero, naturally dipping under the
+  // threshold for a step or two, which the merge-gap bridging above
+  // then stitches back together as if it were one feature. Splitting
+  // a closed run at every sign change turns that one run back into the
+  // two real, separately-signed corners it actually contains — critical
+  // because summing signed turn rates over an unsplit S-curve nets
+  // toward zero, which would make two genuine hairpins look like one
+  // long, shallow "corner" (and fail the sharpness check below).
   const closeRun = (runEndExclusive: number) => {
     if (runStart < 0) return;
 
-    const startPointIndex = pointIndexForTurnRate(runStart);
-    const endPointIndex = pointIndexForTurnRate(runEndExclusive - 1);
-
-    let apexIndex = runStart;
+    // Raw per-step sign, then debounced: a sign run shorter than
+    // MIN_CORNER_STEPS is digitization noise flickering near zero, not
+    // a real reversal, so it gets absorbed into the run before it
+    // (mirrors the same debounce used for ride-direction reversals in
+    // lib/gpx/passes.ts).
+    const signs: number[] = [];
     for (let k = runStart; k < runEndExclusive; k += 1) {
-      if (Math.abs(turnRates[k]) > Math.abs(turnRates[apexIndex])) apexIndex = k;
+      const sign = Math.sign(turnRates[k]);
+      signs.push(sign !== 0 ? sign : (signs[signs.length - 1] ?? 1));
     }
 
-    const turnAngleDegrees = turnRates
-      .slice(runStart, runEndExclusive)
-      .reduce((sum, rate) => sum + rate, 0);
+    let debounced = true;
+    while (debounced) {
+      debounced = false;
+      let i = 0;
+      while (i < signs.length) {
+        let j = i;
+        while (j < signs.length && signs[j] === signs[i]) j += 1;
+        if (i > 0 && j - i < MIN_CORNER_STEPS) {
+          const previousSign = signs[i - 1];
+          for (let k = i; k < j; k += 1) signs[k] = previousSign;
+          debounced = true;
+        }
+        i = j;
+      }
+    }
 
-    corners.push({
-      index: corners.length + 1,
-      startArcLengthMeters: points[startPointIndex].arcLengthMeters,
-      endArcLengthMeters: points[endPointIndex].arcLengthMeters,
-      apexArcLengthMeters: points[pointIndexForTurnRate(apexIndex)].arcLengthMeters,
-      turnAngleDegrees: Math.abs(turnAngleDegrees),
-      direction: turnAngleDegrees >= 0 ? "right" : "left",
-    });
+    const segments: Array<[number, number]> = [];
+    let segStart = 0;
+    for (let i = 1; i < signs.length; i += 1) {
+      if (signs[i] !== signs[segStart]) {
+        segments.push([runStart + segStart, runStart + i]);
+        segStart = i;
+      }
+    }
+    segments.push([runStart + segStart, runEndExclusive]);
+
+    for (const [segStartIndex, segEndExclusive] of segments) {
+      if (segEndExclusive - segStartIndex < MIN_CORNER_STEPS) continue;
+
+      const startPointIndex = pointIndexForTurnRate(segStartIndex);
+      const endPointIndex = pointIndexForTurnRate(segEndExclusive - 1);
+
+      let apexIndex = segStartIndex;
+      for (let k = segStartIndex; k < segEndExclusive; k += 1) {
+        if (Math.abs(turnRates[k]) > Math.abs(turnRates[apexIndex])) apexIndex = k;
+      }
+
+      const turnAngleDegrees = turnRates
+        .slice(segStartIndex, segEndExclusive)
+        .reduce((sum, rate) => sum + rate, 0);
+
+      const startArcLengthMeters = points[startPointIndex].arcLengthMeters;
+      const endArcLengthMeters = points[endPointIndex].arcLengthMeters;
+      const lengthMeters = endArcLengthMeters - startArcLengthMeters;
+      const sharpness = lengthMeters > 0 ? Math.abs(turnAngleDegrees) / lengthMeters : Infinity;
+
+      if (sharpness < MIN_SHARPNESS_DEG_PER_METER) continue;
+
+      candidates.push({
+        startArcLengthMeters,
+        endArcLengthMeters,
+        apexArcLengthMeters: points[pointIndexForTurnRate(apexIndex)].arcLengthMeters,
+        turnAngleDegrees: Math.abs(turnAngleDegrees),
+        direction: turnAngleDegrees >= 0 ? "right" : "left",
+      });
+    }
   };
 
   for (let i = 0; i < isTurning.length; i += 1) {
@@ -160,7 +229,7 @@ export function detectCorners(coordinates: readonly Position[]): Corner[] {
     closeRun(isTurning.length);
   }
 
-  return corners;
+  return candidates.map((corner, i) => ({ ...corner, index: i + 1 }));
 }
 
 export function countCorners(coordinates: readonly Position[]): number {

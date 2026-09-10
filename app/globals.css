@@ -300,8 +300,18 @@ body {
 
 .upload-panel-ride-label {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   font-family: var(--font-geist-sans), sans-serif;
   font-size: 11px;
+  color: var(--chrome-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-panel-ride-sublabel {
+  font-size: 10px;
   color: var(--chrome-text-muted);
 }
 
@@ -531,5 +541,141 @@ body {
   flex-shrink: 0;
   width: 6px;
   height: 6px;
+  border-radius: 999px;
+}
+
+.speed-chart-panel {
+  position: fixed;
+  bottom: 20px;
+  left: 360px;
+  right: 360px;
+  z-index: 10;
+  max-width: 900px;
+  margin: 0 auto;
+  background: linear-gradient(165deg, var(--chrome-panel), var(--chrome-void));
+  border: 1px solid var(--chrome-panel-border);
+  border-top: 3px solid var(--neon-violet);
+  clip-path: polygon(
+    14px 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    0 100%,
+    0 14px
+  );
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-display-stack);
+  color: var(--chrome-text);
+  padding: 10px 16px 12px;
+}
+
+.speed-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.speed-chart-header-main {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--neon-violet);
+}
+
+.speed-chart-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.speed-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 10px;
+  color: var(--chrome-text-muted);
+}
+
+.speed-chart-legend-swatch {
+  flex-shrink: 0;
+  width: 12px;
+  height: 2px;
+  border-radius: 2px;
+}
+
+.speed-chart-svg {
+  width: 100%;
+  height: 190px;
+  display: block;
+  cursor: crosshair;
+}
+
+.speed-chart-gridline {
+  stroke: var(--chrome-panel-border);
+  stroke-width: 1;
+}
+
+.speed-chart-axis-label {
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 9px;
+  fill: var(--chrome-text-muted);
+}
+
+.speed-chart-corner-tick {
+  stroke: rgba(124, 58, 255, 0.35);
+  stroke-width: 1;
+}
+
+.speed-chart-corner-tick--selected {
+  stroke: var(--neon-magenta);
+  stroke-width: 2;
+}
+
+.speed-chart-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.speed-chart-crosshair {
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.speed-chart-readout {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--chrome-panel-border);
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 11px;
+  min-height: 16px;
+}
+
+.speed-chart-readout-position {
+  color: var(--chrome-text-muted);
+}
+
+.speed-chart-readout-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+}
+
+.speed-chart-readout-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
 }

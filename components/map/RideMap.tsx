@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import {
+  type ExpressionSpecification,
   GeoJSONSource,
   LngLatBoundsLike,
   Map as MapLibreMap,
@@ -183,24 +184,44 @@ export default function RideMap({
         data: { type: "FeatureCollection", features: [] },
       });
 
+      const isSelected: ExpressionSpecification = [
+        "boolean",
+        ["feature-state", "selected"],
+        false,
+      ];
+
+      map.addLayer({
+        id: "corner-markers-badge",
+        type: "circle",
+        source: CORNER_MARKERS_SOURCE,
+        // Hidden at the wide overview zoom (40+ numbers over 13 miles
+        // would just be clutter) — they appear once you're zoomed in
+        // enough to actually be looking at a stretch of road.
+        minzoom: 11,
+        paint: {
+          "circle-radius": ["case", isSelected, 13, 9],
+          "circle-color": ["case", isSelected, "#ff2fb0", "#7c3aff"],
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": ["case", isSelected, 2, 1.4],
+        },
+      });
+
       map.addLayer({
         id: "corner-markers",
         type: "symbol",
         source: CORNER_MARKERS_SOURCE,
-        // Hidden at the wide overview zoom (46 numbers over 13 miles
-        // would just be clutter) — they appear once you're zoomed in
-        // enough to actually be looking at a stretch of road.
-        minzoom: 12,
+        minzoom: 11,
         layout: {
           "text-field": ["get", "label"],
           "text-font": ["Noto Sans Regular"],
-          "text-size": 13,
+          // text-size is a layout property — feature-state expressions
+          // only work in paint properties, so the "selected" emphasis
+          // lives entirely on the badge (circle) layer below the text.
+          "text-size": 12,
           "text-allow-overlap": true,
         },
         paint: {
           "text-color": "#ffffff",
-          "text-halo-color": "#7c3aff",
-          "text-halo-width": 2,
         },
       });
 
@@ -266,6 +287,7 @@ export default function RideMap({
           properties: {},
           geometry: { type: "LineString", coordinates: [] },
         });
+        map.removeFeatureState({ source: CORNER_MARKERS_SOURCE });
         return;
       }
 
@@ -283,6 +305,11 @@ export default function RideMap({
         properties: {},
         geometry: { type: "LineString", coordinates: tuples },
       });
+
+      // Make the selected corner's own number badge pop (bigger, brighter)
+      // in addition to the glowing highlight line.
+      map.removeFeatureState({ source: CORNER_MARKERS_SOURCE });
+      map.setFeatureState({ source: CORNER_MARKERS_SOURCE, id: corner.index }, { selected: true });
 
       map.fitBounds(boundsFromCoordinates(tuples), {
         padding: CORNER_ZOOM_PADDING,
@@ -313,6 +340,7 @@ export default function RideMap({
           );
           return {
             type: "Feature",
+            id: corner.index,
             properties: { label: String(corner.index) },
             geometry: { type: "Point", coordinates: [lon, lat] },
           };
@@ -382,9 +410,10 @@ export default function RideMap({
       // Ride traces just got (re)added on top of everything — bring the
       // corner number labels and highlight back above them so they stay
       // readable instead of getting buried under the thick trace lines.
-      if (map.getLayer("corner-markers")) map.moveLayer("corner-markers");
       if (map.getLayer("corner-highlight-glow")) map.moveLayer("corner-highlight-glow");
       if (map.getLayer("corner-highlight-line")) map.moveLayer("corner-highlight-line");
+      if (map.getLayer("corner-markers-badge")) map.moveLayer("corner-markers-badge");
+      if (map.getLayer("corner-markers")) map.moveLayer("corner-markers");
 
       const allCoordinates = loadedRides.flatMap((loaded) =>
         loaded.ride.passes.flatMap((pass) =>

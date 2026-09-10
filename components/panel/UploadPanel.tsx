@@ -5,7 +5,12 @@ import { useRef, useState } from "react";
 import { routes } from "@/data/routes";
 import { detectAndAnalyzeRide, type AnalyzedRide } from "@/lib/gpx/analyzeRide";
 import { parseGpx } from "@/lib/gpx/parse";
-import { createLoadedRide, MAX_LOADED_RIDES, type LoadedRide } from "@/lib/gpx/session";
+import {
+  createLoadedRide,
+  deriveRideLabel,
+  MAX_LOADED_RIDES,
+  type LoadedRide,
+} from "@/lib/gpx/session";
 
 type UploadPanelProps = {
   loadedRides: LoadedRide[];
@@ -60,7 +65,7 @@ export default function UploadPanel({ loadedRides, onAddRide, onRemoveRide }: Up
 
       setStatus("done");
       setMessage(`Added — ${summarizeRide(analyzed)}`);
-      onAddRide(createLoadedRide(analyzed, loadedRides));
+      onAddRide(createLoadedRide(analyzed, loadedRides, deriveRideLabel(file.name)));
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Failed to parse GPX file.");
@@ -100,7 +105,10 @@ export default function UploadPanel({ loadedRides, onAddRide, onRemoveRide }: Up
                 className="upload-panel-ride-swatch"
                 style={{ background: loaded.color }}
               />
-              <span className="upload-panel-ride-label">{summarizeRide(loaded.ride)}</span>
+              <span className="upload-panel-ride-label">
+                {loaded.label}
+                <span className="upload-panel-ride-sublabel">{summarizeRide(loaded.ride)}</span>
+              </span>
               <button
                 className="upload-panel-ride-remove"
                 onClick={() => onRemoveRide(loaded.id)}

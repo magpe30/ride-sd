@@ -1,13 +1,9 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 
 import { detectCorners, type Corner } from "@/lib/geo/corners";
-import {
-  availableDirections,
-  buildCornerComparison,
-  fastestRideId,
-} from "@/lib/gpx/compareCorners";
+import { buildCornerComparison, fastestRideId } from "@/lib/gpx/compareCorners";
 import type { Pass } from "@/lib/gpx/passes";
 import type { LoadedRide } from "@/lib/gpx/session";
 
@@ -15,6 +11,9 @@ type CornerPanelProps = {
   loadedRides: LoadedRide[];
   selectedCorner: Corner | null;
   onSelectCorner: (corner: Corner | null) => void;
+  directions: Pass["direction"][];
+  direction: Pass["direction"] | null;
+  onChangeDirection: (direction: Pass["direction"]) => void;
 };
 
 const MPS_TO_MPH = 2.23694;
@@ -37,7 +36,14 @@ const METRIC_ROWS: Array<{
   { label: "LEAN~", value: (m) => `${m.estimatedLeanAngleDegrees.toFixed(0)}°` },
 ];
 
-export default function CornerPanel({ loadedRides, selectedCorner, onSelectCorner }: CornerPanelProps) {
+export default function CornerPanel({
+  loadedRides,
+  selectedCorner,
+  onSelectCorner,
+  directions,
+  direction,
+  onChangeDirection,
+}: CornerPanelProps) {
   const activeRoute = loadedRides[0]?.ride.route ?? null;
 
   const corners = useMemo(
@@ -45,9 +51,7 @@ export default function CornerPanel({ loadedRides, selectedCorner, onSelectCorne
     [activeRoute]
   );
 
-  const directions = useMemo(() => availableDirections(loadedRides), [loadedRides]);
-  const [direction, setDirection] = useState<Pass["direction"]>("forward");
-  const activeDirection = directions.includes(direction) ? direction : directions[0];
+  const activeDirection = direction && directions.includes(direction) ? direction : directions[0];
 
   const rows = useMemo(
     () =>
@@ -77,7 +81,7 @@ export default function CornerPanel({ loadedRides, selectedCorner, onSelectCorne
               key={d}
               className={`corner-panel-tab${d === activeDirection ? " corner-panel-tab--active" : ""}`}
               onClick={() => {
-                setDirection(d);
+                onChangeDirection(d);
                 onSelectCorner(null);
               }}
             >

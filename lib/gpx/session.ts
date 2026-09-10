@@ -15,6 +15,8 @@ export type LoadedRide = {
   id: string;
   ride: AnalyzedRide;
   color: string;
+  /** Human-readable identity for lists/legends — the uploaded file's name. */
+  label: string;
 };
 
 export function nextAvailableColor(existing: readonly LoadedRide[]): string {
@@ -22,10 +24,32 @@ export function nextAvailableColor(existing: readonly LoadedRide[]): string {
   return RIDE_COLORS.find((color) => !used.has(color)) ?? RIDE_COLORS[0];
 }
 
-export function createLoadedRide(ride: AnalyzedRide, existing: readonly LoadedRide[]): LoadedRide {
+// GPX exports often look like "Connected_20260118_090837_Jan_18_2026_at_9_08_AM.gpx"
+// — pull out the readable date if it matches that shape, otherwise just
+// strip the extension.
+export function deriveRideLabel(filename: string): string {
+  const withoutExtension = filename.replace(/\.gpx$/i, "");
+  const dateMatch = withoutExtension.match(
+    /([A-Z][a-z]{2})_(\d{1,2})_(\d{4})_at_(\d{1,2})_(\d{2})_(AM|PM)/
+  );
+
+  if (dateMatch) {
+    const [, month, day, year, hour, minute, meridiem] = dateMatch;
+    return `${month} ${day}, ${year} ${hour}:${minute} ${meridiem}`;
+  }
+
+  return withoutExtension;
+}
+
+export function createLoadedRide(
+  ride: AnalyzedRide,
+  existing: readonly LoadedRide[],
+  label: string
+): LoadedRide {
   return {
     id: `${ride.route.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     ride,
     color: nextAvailableColor(existing),
+    label,
   };
 }
