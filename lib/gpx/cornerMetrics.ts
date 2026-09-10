@@ -20,12 +20,14 @@ export type CornerMetrics = {
   speedLostMps: number;
   speedGainedMps: number;
   /**
-   * Steady-state estimate from apex speed and the corner's average
-   * radius (arc length / turn angle) — the same approximation
-   * track-telemetry tools use without an IMU. It ignores road camber,
-   * rider countersteer dynamics, and that a corner's actual radius
-   * tightens toward the apex rather than staying constant, so treat
-   * this as an estimate, not a measurement.
+   * Steady-state estimate from apex speed and the corner's local apex
+   * radius — the same approximation track-telemetry tools use without
+   * an IMU. It ignores road camber and rider countersteer dynamics, and
+   * the underlying radius comes from the road centerline rather than
+   * the actual ridden line (which typically apexes tighter), so this
+   * estimate is expected to read a few degrees under a bike's own IMU
+   * lean-angle sensor — treat it as a comparable estimate, not a
+   * replacement for a real measurement.
    */
   estimatedLeanAngleDegrees: number;
 };
@@ -113,8 +115,19 @@ export function computeCornerMetrics(
   const apexSpeedMps = speedAtArcLength(sortedByArc, corner.apexArcLengthMeters);
 
   const cornerLengthMeters = corner.endArcLengthMeters - corner.startArcLengthMeters;
+
+  // Prefer the apex's local radius (tightest point of the corner) over
+  // the whole-corner average — a corner tapers in toward its apex, so
+  // the average understates exactly how sharp the point the rider is
+  // actually leaned over hardest really is. Only fall back to the
+  // average when the local window came back degenerate (near-colinear
+  // points, e.g. a very shallow sweeper).
   const turnAngleRadians = (corner.turnAngleDegrees * Math.PI) / 180;
-  const radiusMeters = turnAngleRadians > 0 ? cornerLengthMeters / turnAngleRadians : Infinity;
+  const averageRadiusMeters =
+    turnAngleRadians > 0 ? cornerLengthMeters / turnAngleRadians : Infinity;
+  const radiusMeters = Number.isFinite(corner.apexRadiusMeters)
+    ? corner.apexRadiusMeters
+    : averageRadiusMeters;
 
   const estimatedLeanAngleDegrees =
     Number.isFinite(radiusMeters) && radiusMeters > 0

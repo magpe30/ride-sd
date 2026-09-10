@@ -33,7 +33,7 @@ const METRIC_ROWS: Array<{
   { label: "EXIT", value: (m) => `${mph(m.exitSpeedMps)} mph` },
   { label: "LOST", value: (m) => `${mph(m.speedLostMps)} mph` },
   { label: "GAINED", value: (m) => `${mph(m.speedGainedMps)} mph` },
-  { label: "LEAN~", value: (m) => `${m.estimatedLeanAngleDegrees.toFixed(0)}°` },
+  { label: "LEAN", value: (m) => `~${m.estimatedLeanAngleDegrees.toFixed(0)}°` },
 ];
 
 export default function CornerPanel({

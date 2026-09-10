@@ -14,6 +14,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { routes, type Route } from "@/data/routes";
 import { detectCorners, type Corner } from "@/lib/geo/corners";
 import {
+  bearingDegrees,
   cumulativeDistancesMeters,
   pointAtArcLength,
   sliceLineByArcLength,
@@ -29,11 +30,53 @@ const CORNER_MARKERS_SOURCE = "corner-markers";
 // Keeps a highlighted corner clear of the fixed side panels (~320px)
 // instead of centering it under them.
 const CORNER_ZOOM_PADDING = { top: 100, bottom: 100, left: 340, right: 340 };
-const ROUTE_DRAW_DURATION_MS = 900;
+// Scaled by the route's own length rather than fixed, so a 20-mile
+// route doesn't zip by at the same speed as a 13-mile one — clamped so
+// neither a short nor a very long route ends up feeling instant or
+// dragging.
+const ROUTE_DRAW_MS_PER_MILE = 320;
+const ROUTE_DRAW_MIN_DURATION_MS = 2800;
+const ROUTE_DRAW_MAX_DURATION_MS = 7000;
 const UPLOADED_PASS_PREFIX = "uploaded-pass-";
 // Visual separation between rides of the same road, so overlapping
 // traces read as parallel lanes instead of one occluding the others.
 const RIDE_LANE_OFFSET_METERS = 10;
+
+function routeDrawDurationMs(distanceMiles: number): number {
+  return Math.min(
+    ROUTE_DRAW_MAX_DURATION_MS,
+    Math.max(ROUTE_DRAW_MIN_DURATION_MS, distanceMiles * ROUTE_DRAW_MS_PER_MILE)
+  );
+}
+
+// Drawn top-down (like Uber/Google Maps' moving-vehicle markers, not a
+// side profile) with the nose at the top of the viewBox — so rotation
+// 0 = pointing north, matching bearingDegrees()'s convention directly,
+// with no offset needed. Shaded body + a rear "tail light" accent for
+// the same at-a-glance "which end is the front" read Uber's own
+// vehicle marker uses.
+const RIDER_ICON_SVG = `
+  <svg viewBox="0 0 24 40" width="24" height="40">
+    <defs>
+      <linearGradient id="riderBody" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#ffffff" />
+        <stop offset="55%" stop-color="#e9e2fb" />
+        <stop offset="100%" stop-color="#b9a3ef" />
+      </linearGradient>
+    </defs>
+    <ellipse cx="12" cy="34" rx="4.5" ry="3" fill="#0a0e13" />
+    <ellipse cx="12" cy="7" rx="4" ry="2.6" fill="#0a0e13" />
+    <line x1="5" y1="8" x2="19" y2="8" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
+    <path
+      d="M12 5 L16.5 13 L15 31 Q12 34 9 31 L7.5 13 Z"
+      fill="url(#riderBody)"
+      stroke="#ffffff"
+      stroke-width="0.8"
+    />
+    <path d="M9.5 10.5 L14.5 10.5 L13.3 15 L10.7 15 Z" fill="#241f3d" opacity="0.75" />
+    <rect x="9.5" y="29.5" width="5" height="2.4" rx="1.2" fill="#ff3b3b" />
+  </svg>
+`;
 
 function boundsFromCoordinates(
   coordinates: readonly (readonly number[])[]
@@ -79,6 +122,11 @@ export default function RideMap({
   const renderCornerMarkersRef = useRef<(route: Route | null) => void>(() => {});
   const markersRef = useRef<Map<string, Marker>>(new Map());
   const uploadedLayerIdsRef = useRef<string[]>([]);
+  const riderMarkerRef = useRef<Marker | null>(null);
+  // Bumped on every drawRoute() call so a stale in-flight animation
+  // (e.g. the user clicks a different route before the first one
+  // finishes) can recognize it's obsolete and stop updating anything.
+  const routeAnimationTokenRef = useRef(0);
   // Our own "the initial style finished loading" flag. MapLibre's own
   // map.isStyleLoaded() is about render/tile-loading completion and can
   // transiently report false again after adding a source — it's not a
@@ -233,6 +281,18 @@ export default function RideMap({
       }
     });
 
+    const getRiderMarker = () => {
+      if (riderMarkerRef.current) return riderMarkerRef.current;
+
+      const el = document.createElement("div");
+      el.className = "ride-rider-marker";
+      el.innerHTML = RIDER_ICON_SVG;
+
+      const marker = new Marker({ element: el, rotationAlignment: "map" });
+      riderMarkerRef.current = marker;
+      return marker;
+    };
+
     const drawRoute = (route: Route) => {
       const source = map.getSource(SELECTED_ROUTE_SOURCE) as
         | GeoJSONSource
@@ -242,10 +302,17 @@ export default function RideMap({
 
       const coordinates = route.line.coordinates;
       const startTime = performance.now();
+      const durationMs = routeDrawDurationMs(route.distanceMiles);
+      const token = ++routeAnimationTokenRef.current;
+
+      const rider = getRiderMarker();
+      rider.setLngLat(coordinates[0] as [number, number]).addTo(map);
 
       const animate = (now: number) => {
-        const progress = Math.min(1, (now - startTime) / ROUTE_DRAW_DURATION_MS);
-        const currentIndex = Math.ceil(progress * coordinates.length);
+        if (routeAnimationTokenRef.current !== token) return;
+
+        const progress = Math.min(1, (now - startTime) / durationMs);
+        const currentIndex = Math.max(1, Math.ceil(progress * coordinates.length));
 
         source.setData({
           type: "Feature",
@@ -255,6 +322,13 @@ export default function RideMap({
             coordinates: coordinates.slice(0, currentIndex),
           },
         });
+
+        const tip = coordinates[currentIndex - 1];
+        const behind = coordinates[Math.max(0, currentIndex - 3)];
+        rider.setLngLat([tip[0], tip[1]]);
+        if (behind[0] !== tip[0] || behind[1] !== tip[1]) {
+          rider.setRotation(bearingDegrees(behind, tip));
+        }
 
         if (progress < 1) {
           requestAnimationFrame(animate);
@@ -442,6 +516,8 @@ export default function RideMap({
     return () => {
       markers.forEach((marker) => marker.remove());
       markers.clear();
+      riderMarkerRef.current?.remove();
+      riderMarkerRef.current = null;
       map.remove();
       mapRef.current = null;
     };

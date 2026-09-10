@@ -43,16 +43,18 @@ export default function Home() {
         <span className="hud-title-main">RIDE SD</span>
         <span className="hud-title-sub">SAN DIEGO COUNTY</span>
       </div>
-      <RoutePanel
-        routes={routes}
-        selectedRouteId={selectedRouteId}
-        onSelectRoute={setSelectedRouteId}
-      />
-      <UploadPanel
-        loadedRides={loadedRides}
-        onAddRide={handleAddRide}
-        onRemoveRide={handleRemoveRide}
-      />
+      <div className="left-hud-column">
+        <RoutePanel
+          routes={routes}
+          selectedRouteId={selectedRouteId}
+          onSelectRoute={setSelectedRouteId}
+        />
+        <UploadPanel
+          loadedRides={loadedRides}
+          onAddRide={handleAddRide}
+          onRemoveRide={handleRemoveRide}
+        />
+      </div>
       <CornerPanel
         loadedRides={loadedRides}
         selectedCorner={selectedCorner}

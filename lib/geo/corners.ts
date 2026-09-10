@@ -16,6 +16,7 @@ import {
   angleDiffDegrees,
   bearingDegrees,
   cumulativeDistancesMeters,
+  fitCircleRadiusMeters,
 } from "./measure";
 
 export type { Position };
@@ -30,6 +31,14 @@ export type Corner = {
   /** Net heading change through the corner — a proxy for how tight/long a turn it is. */
   turnAngleDegrees: number;
   direction: "left" | "right";
+  /**
+   * Local radius at the apex, from a small window of points straddling
+   * it rather than the corner's average radius (length / total angle).
+   * A corner tightens toward its apex — using the whole-corner average
+   * understates how sharp that single point actually is, which in turn
+   * understates the lean angle a constant apex speed would require.
+   */
+  apexRadiusMeters: number;
 };
 
 const RESAMPLE_STEP_METERS = 15;
@@ -48,6 +57,15 @@ const MERGE_GAP_STEPS = 2;
 // at around this value, with zero false positives on Sunrise Highway's
 // tightly-clustered real corners (all 0.29-0.72 deg/m).
 const MIN_SHARPNESS_DEG_PER_METER = 0.05;
+
+// Half-width, in resample steps, of the window fit-circled to estimate
+// the apex's local radius. Small enough to stay within the tightest
+// part of the corner rather than blending in its wider entry/exit,
+// large enough (4 steps * 15m = 60m either side, 9 points total) that
+// the least-squares fit isn't at the mercy of any single point's
+// GPS/digitization jitter — a literal 3-point circumradius here proved
+// unusably noisy in practice (see fitCircleRadiusMeters).
+const APEX_RADIUS_WINDOW_STEPS = 4;
 
 type ResampledPoint = {
   position: Position;
@@ -207,12 +225,20 @@ export function detectCorners(coordinates: readonly Position[]): Corner[] {
 
       if (sharpness < MIN_SHARPNESS_DEG_PER_METER) continue;
 
+      const apexPointIndex = pointIndexForTurnRate(apexIndex);
+      const windowStart = Math.max(0, apexPointIndex - APEX_RADIUS_WINDOW_STEPS);
+      const windowEnd = Math.min(points.length - 1, apexPointIndex + APEX_RADIUS_WINDOW_STEPS);
+      const apexRadiusMeters = fitCircleRadiusMeters(
+        points.slice(windowStart, windowEnd + 1).map((p) => p.position)
+      );
+
       candidates.push({
         startArcLengthMeters,
         endArcLengthMeters,
-        apexArcLengthMeters: points[pointIndexForTurnRate(apexIndex)].arcLengthMeters,
+        apexArcLengthMeters: points[apexPointIndex].arcLengthMeters,
         turnAngleDegrees: Math.abs(turnAngleDegrees),
         direction: turnAngleDegrees >= 0 ? "right" : "left",
+        apexRadiusMeters,
       });
     }
   };
