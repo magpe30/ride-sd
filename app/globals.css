@@ -107,10 +107,17 @@ body {
 }
 
 .left-hud-column {
+  /* Anchored by `bottom` only (no `top`) so the group's height tracks
+     its actual content and grows upward from a fixed bottom edge —
+     collapsing routes shortens the column from the top, with upload
+     staying flush underneath it instead of leaving a gap. `max-height`
+     is just a safety cap for short viewports, which pushes the route
+     list (flex + min-height:0 + overflow-y:auto) into scrolling rather
+     than the column overflowing past the title chip. */
   position: fixed;
-  top: 92px;
-  left: 20px;
   bottom: 20px;
+  left: 20px;
+  max-height: calc(100vh - 112px);
   z-index: 10;
   width: 300px;
   display: flex;
@@ -119,7 +126,16 @@ body {
 }
 
 .route-panel {
-  flex: 1 1 auto;
+  /* No flex-grow: .left-hud-column has no explicit height (only a
+     max-height cap), so there's never leftover space for a flex-grow
+     item to expand into — grow would be inert anyway. Making that
+     permanent (rather than an instant flex:0 0 auto swap that only
+     applied while collapsed) removes an un-transitioned layout change
+     that used to fire the instant the collapse click landed, before
+     the fold animation had even started — a real, visible snap on
+     collapse that had no equivalent moment on expand (a freshly
+     collapsed panel has nothing for flex-grow to have been doing yet). */
+  flex: 0 1 auto;
   min-height: 0;
   width: 100%;
   display: flex;
@@ -133,12 +149,31 @@ body {
   color: var(--chrome-text);
 }
 
+.route-panel--collapsed .route-panel-header {
+  border-bottom-color: transparent;
+}
+
 .route-panel-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   padding: 12px 16px;
   border-bottom: 1px solid var(--chrome-panel-border);
+  /* Fades out in step with the fold animation instead of snapping —
+     `border-style` (solid <-> none) can't be transitioned, but
+     `border-color` can, so collapse toggles the color instead. */
+  transition: border-bottom-color 0.28s ease;
+}
+
+.route-panel-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.route-panel > .panel-fold-region {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .route-panel-header-main {
@@ -234,6 +269,12 @@ body {
 
 .upload-panel {
   flex: 0 0 auto;
+  /* Anchors to the bottom of .left-hud-column regardless of whether
+     the routes panel above it is expanded or collapsed — a plain flex
+     item would slide up to meet the routes panel's now-short box the
+     moment it collapses, since there'd be nothing left claiming that
+     space. */
+  margin-top: auto;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -344,8 +385,11 @@ body {
 }
 
 .corner-panel {
+  /* Anchored by `bottom` only, same reasoning as .left-hud-column:
+     collapsing shrinks the panel from the top edge downward toward a
+     fixed bottom, instead of leaving a gap below a top-pinned header. */
   position: fixed;
-  top: 92px;
+  bottom: 20px;
   right: 20px;
   z-index: 10;
   width: 320px;
@@ -367,6 +411,80 @@ body {
   justify-content: space-between;
   padding: 12px 16px;
   border-bottom: 1px solid var(--chrome-panel-border);
+  transition: border-bottom-color 0.28s ease;
+}
+
+.corner-panel-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.corner-panel--collapsed .corner-panel-header {
+  border-bottom-color: transparent;
+}
+
+.corner-panel > .panel-fold-region {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.panel-fold-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--chrome-panel-border);
+  border-radius: 2px;
+  color: var(--chrome-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.panel-fold-toggle:hover {
+  color: var(--chrome-text);
+  border-color: var(--neon-cyan);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.panel-fold-chevron {
+  display: block;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+}
+
+.panel-fold-chevron--collapsed {
+  transform: rotate(180deg);
+}
+
+/* Smoothly animates a foldable panel body between its natural height
+   and zero via an animatable grid track (`fr` units), rather than a
+   `max-height` transition — a max-height animation between a fixed
+   cap and 0 looks uneven whenever real content is much shorter than
+   the cap (most of the transition ends up doing nothing, then a fast
+   snap at the end). The grid-row approach tracks actual content
+   height instead. `.panel-fold-region-inner` is the sole grid item —
+   it stretches to fill the track by default, so it needs its own
+   overflow:hidden to actually clip while the track shrinks. */
+.panel-fold-region {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.28s ease;
+}
+
+.panel-fold-region--collapsed {
+  grid-template-rows: 0fr;
+}
+
+.panel-fold-region-inner {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .corner-panel-header-main {
@@ -589,6 +707,21 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 4px;
+}
+
+.speed-chart-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.speed-chart-panel--collapsed {
+  padding-bottom: 10px;
+}
+
+.speed-chart-panel--collapsed .speed-chart-header {
+  margin-bottom: 0;
 }
 
 .speed-chart-header-main {
