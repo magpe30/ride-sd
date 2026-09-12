@@ -26,23 +26,21 @@ export type PlaybackFrameListener = (states: readonly RidePlaybackState[]) => vo
 export type PlaybackEngine = {
   hasPlayableRides: boolean;
   playing: boolean;
-  speedMultiplier: number;
-  speedMultiplierOptions: readonly number[];
   finishedRideIds: ReadonlySet<string>;
   allFinished: boolean;
   togglePlay: () => void;
-  setSpeedMultiplier: (multiplier: number) => void;
   reset: () => void;
   subscribe: (listener: PlaybackFrameListener) => () => void;
   getStates: () => readonly RidePlaybackState[];
 };
 
 // Real 1x playback of a real ride (often 20-40+ minutes for these
-// routes) would be unwatchable as a demo. These compress the replay
-// while still preserving *relative* pacing — a hairpin still reads as
-// slower than a sweeper — which flat "constant speed" playback can't.
-const SPEED_MULTIPLIER_OPTIONS = [10, 20, 40, 80] as const;
-const DEFAULT_SPEED_MULTIPLIER = 20;
+// routes) would be unwatchable as a demo. This compresses the replay
+// by a fixed, un-adjustable amount — the smallest compression that
+// still keeps a full route to a reasonable length — while still
+// preserving *relative* pacing (a hairpin still reads as slower than a
+// sweeper), which flat "constant speed" playback can't.
+const PLAYBACK_SPEED_MULTIPLIER = 10;
 
 // Caps the per-frame time delta so resuming after a dropped/backgrounded
 // tab doesn't feed the sim one huge catch-up step (which would look
@@ -86,13 +84,11 @@ export function usePlaybackEngine(
   direction: Pass["direction"] | null
 ): PlaybackEngine {
   const [playing, setPlaying] = useState(false);
-  const [speedMultiplier, setSpeedMultiplier] = useState<number>(DEFAULT_SPEED_MULTIPLIER);
   const [finishedRideIds, setFinishedRideIds] = useState<ReadonlySet<string>>(new Set());
 
   const entriesRef = useRef<Map<string, PlaybackEntry>>(new Map());
   const statesRef = useRef<RidePlaybackState[]>([]);
   const listenersRef = useRef<Set<PlaybackFrameListener>>(new Set());
-  const speedMultiplierRef = useRef(speedMultiplier);
   const rafRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
 
@@ -105,10 +101,6 @@ export function usePlaybackEngine(
   // invalidate the cached passes (they'd otherwise keep pointing at the
   // wrong direction's samples).
   const playableKey = `${direction ?? "none"}|${activeRideIds.join(",")}`;
-
-  useEffect(() => {
-    speedMultiplierRef.current = speedMultiplier;
-  }, [speedMultiplier]);
 
   const notify = useCallback((states: readonly RidePlaybackState[]) => {
     for (const listener of listenersRef.current) listener(states);
@@ -163,7 +155,7 @@ export function usePlaybackEngine(
       if (lastFrameTimeRef.current === null) lastFrameTimeRef.current = now;
       const rawDtSeconds = (now - lastFrameTimeRef.current) / 1000;
       lastFrameTimeRef.current = now;
-      const dtSeconds = Math.min(MAX_FRAME_DT_SECONDS, rawDtSeconds) * speedMultiplierRef.current;
+      const dtSeconds = Math.min(MAX_FRAME_DT_SECONDS, rawDtSeconds) * PLAYBACK_SPEED_MULTIPLIER;
 
       const newlyFinished: string[] = [];
       const next = statesRef.current.map((state) => {
@@ -236,12 +228,9 @@ export function usePlaybackEngine(
   return {
     hasPlayableRides,
     playing,
-    speedMultiplier,
-    speedMultiplierOptions: SPEED_MULTIPLIER_OPTIONS,
     finishedRideIds,
     allFinished,
     togglePlay,
-    setSpeedMultiplier,
     reset,
     subscribe,
     getStates,

@@ -7,7 +7,6 @@ import CornerPanel from "@/components/panel/CornerPanel";
 import RoutePanel from "@/components/panel/RoutePanel";
 import SpeedChartPanel from "@/components/panel/SpeedChartPanel";
 import UploadPanel from "@/components/panel/UploadPanel";
-import PlaybackBar from "@/components/playback/PlaybackBar";
 import { usePlaybackEngine } from "@/components/playback/usePlaybackEngine";
 import { routes } from "@/data/routes";
 import type { Corner } from "@/lib/geo/corners";
@@ -74,7 +73,6 @@ export default function Home() {
         onSelectCorner={setSelectedCorner}
         playbackEngine={playbackEngine}
       />
-      <PlaybackBar engine={playbackEngine} loadedRides={loadedRides} />
       <RideMap
         selectedRouteId={selectedRouteId}
         onSelectRoute={setSelectedRouteId}

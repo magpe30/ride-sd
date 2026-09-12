@@ -19,6 +19,7 @@ type SpeedChartPanelProps = {
 };
 
 const METERS_PER_MILE = 1609.344;
+const MPS_TO_MPH = 2.23694;
 const CHART_WIDTH = 800;
 const CHART_HEIGHT = 190;
 const PADDING = { top: 12, right: 12, bottom: 22, left: 32 };
@@ -37,6 +38,7 @@ export default function SpeedChartPanel({
   const [collapsed, setCollapsed] = useState(false);
   const overlayPathRefs = useRef<Map<string, SVGPathElement>>(new Map());
   const overlayDotRefs = useRef<Map<string, SVGCircleElement>>(new Map());
+  const legendSpeedRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
 
   const activeRoute = loadedRides[0]?.ride.route ?? null;
 
@@ -113,6 +115,11 @@ export default function SpeedChartPanel({
           dotEl.setAttribute("cy", yScale(mph ?? 0).toFixed(1));
           dotEl.setAttribute("opacity", mph === null ? "0" : "1");
         }
+
+        const legendSpeedEl = legendSpeedRefs.current.get(state.rideId);
+        if (legendSpeedEl) {
+          legendSpeedEl.textContent = `${Math.round(state.speedMps * MPS_TO_MPH)} mph`;
+        }
       }
     });
     return unsubscribe;
@@ -148,13 +155,84 @@ export default function SpeedChartPanel({
       <div className="speed-chart-header">
         <span className="speed-chart-header-main">SPEED PROFILE</span>
         <div className="speed-chart-header-right">
+          {playbackEngine.hasPlayableRides && (
+            <div className="speed-chart-transport">
+              <button
+                type="button"
+                className="speed-chart-play"
+                onClick={playbackEngine.togglePlay}
+                aria-label={
+                  playbackEngine.playing
+                    ? "Pause replay"
+                    : playbackEngine.allFinished
+                      ? "Replay"
+                      : "Play replay"
+                }
+                title={playbackEngine.playing ? "Pause" : playbackEngine.allFinished ? "Replay" : "Play"}
+              >
+                {playbackEngine.playing ? (
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                    <rect x="3" y="2" width="3.5" height="12" rx="1" fill="currentColor" />
+                    <rect x="9.5" y="2" width="3.5" height="12" rx="1" fill="currentColor" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                    <path d="M4 2.5 L13.5 8 L4 13.5 Z" fill="currentColor" />
+                  </svg>
+                )}
+              </button>
+              <button
+                type="button"
+                className="speed-chart-reset"
+                onClick={playbackEngine.reset}
+                aria-label="Reset replay to start"
+                title="Reset to start"
+              >
+                <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+                  <path
+                    d="M13 8a5 5 0 1 1-1.6-3.68"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M13 2.5v3.2h-3.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          )}
           <div className="speed-chart-legend">
-            {loadedRides.map((loaded) => (
-              <span key={loaded.id} className="speed-chart-legend-item">
-                <span className="speed-chart-legend-swatch" style={{ background: loaded.color }} />
-                {loaded.label}
-              </span>
-            ))}
+            {loadedRides.map((loaded) => {
+              const finished = playbackEngine.finishedRideIds.has(loaded.id);
+              return (
+                <span
+                  key={loaded.id}
+                  className={`speed-chart-legend-item${finished ? " speed-chart-legend-item--finished" : ""}`}
+                >
+                  <span className="speed-chart-legend-swatch" style={{ background: loaded.color }} />
+                  {loaded.label}
+                  {playbackEngine.hasPlayableRides && (
+                    <span
+                      className="speed-chart-legend-speed"
+                      ref={(el) => {
+                        if (el) legendSpeedRefs.current.set(loaded.id, el);
+                        else legendSpeedRefs.current.delete(loaded.id);
+                      }}
+                    >
+                      — mph
+                    </span>
+                  )}
+                  {finished && <span className="speed-chart-legend-check">✓</span>}
+                </span>
+              );
+            })}
           </div>
           <FoldToggle
             collapsed={collapsed}
