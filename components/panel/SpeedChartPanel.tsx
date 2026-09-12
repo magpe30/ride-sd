@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { detectCorners, type Corner } from "@/lib/geo/corners";
 import type { Pass } from "@/lib/gpx/passes";
@@ -8,12 +8,14 @@ import { buildSpeedChartSeries, mphAtMiles } from "@/lib/gpx/speedChart";
 import type { LoadedRide } from "@/lib/gpx/session";
 
 import FoldToggle from "./FoldToggle";
+import type { PlaybackEngine } from "../playback/usePlaybackEngine";
 
 type SpeedChartPanelProps = {
   loadedRides: LoadedRide[];
   direction: Pass["direction"] | null;
   selectedCorner: Corner | null;
   onSelectCorner: (corner: Corner | null) => void;
+  playbackEngine: PlaybackEngine;
 };
 
 const METERS_PER_MILE = 1609.344;
@@ -28,10 +30,13 @@ export default function SpeedChartPanel({
   direction,
   selectedCorner,
   onSelectCorner,
+  playbackEngine,
 }: SpeedChartPanelProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverMiles, setHoverMiles] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const overlayPathRefs = useRef<Map<string, SVGPathElement>>(new Map());
+  const overlayDotRefs = useRef<Map<string, SVGCircleElement>>(new Map());
 
   const activeRoute = loadedRides[0]?.ride.route ?? null;
 
@@ -40,18 +45,26 @@ export default function SpeedChartPanel({
     [loadedRides, direction]
   );
 
+  // Each ride's own starting mile mark (where its playback begins) —
+  // needed to know which end of the mile range playback is revealing
+  // from, since a reverse-direction ride starts at the high-mile end
+  // and counts down.
+  const rideStartMilesById = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!direction) return map;
+    for (const loaded of loadedRides) {
+      const pass = loaded.ride.passes.find((p) => p.direction === direction);
+      if (pass && pass.samples.length > 0) {
+        map.set(loaded.id, pass.samples[0].arcLengthMeters / METERS_PER_MILE);
+      }
+    }
+    return map;
+  }, [loadedRides, direction]);
+
   const corners = useMemo(
     () => (activeRoute ? detectCorners(activeRoute.line.coordinates) : []),
     [activeRoute]
   );
-
-  if (!activeRoute || series.length === 0) return null;
-
-  const cornerRanges = corners.map((corner) => ({
-    corner,
-    startMiles: corner.startArcLengthMeters / METERS_PER_MILE,
-    endMiles: corner.endArcLengthMeters / METERS_PER_MILE,
-  }));
 
   const maxMiles = Math.max(0.1, ...series.flatMap((s) => s.points.map((p) => p.miles)));
   const maxMphRaw = Math.max(10, ...series.flatMap((s) => s.points.map((p) => p.mph)));
@@ -64,6 +77,55 @@ export default function SpeedChartPanel({
     points
       .map((p, i) => `${i === 0 ? "M" : "L"} ${xScale(p.miles).toFixed(1)} ${yScale(p.mph).toFixed(1)}`)
       .join(" ");
+
+  // Imperatively redraws each ride's "traveled so far" overlay path and
+  // leading dot every playback frame — bypassing React state/render the
+  // same way the map's marker animation does, since a 60fps setState
+  // here would re-render this whole SVG (grid, corner ticks, all of it)
+  // every frame for no visual benefit.
+  useEffect(() => {
+    const unsubscribe = playbackEngine.subscribe((states) => {
+      for (const state of states) {
+        const s = series.find((candidate) => candidate.rideId === state.rideId);
+        const pathEl = overlayPathRefs.current.get(state.rideId);
+        if (!s || !pathEl) continue;
+
+        const currentMiles = state.arcLengthMeters / METERS_PER_MILE;
+        const startMiles = rideStartMilesById.get(state.rideId) ?? currentMiles;
+        const lo = Math.min(startMiles, currentMiles);
+        const hi = Math.max(startMiles, currentMiles);
+        const traveled = s.points.filter((p) => p.miles >= lo && p.miles <= hi);
+
+        pathEl.setAttribute(
+          "d",
+          traveled
+            .map(
+              (p, i) =>
+                `${i === 0 ? "M" : "L"} ${xScale(p.miles).toFixed(1)} ${yScale(p.mph).toFixed(1)}`
+            )
+            .join(" ")
+        );
+
+        const dotEl = overlayDotRefs.current.get(state.rideId);
+        if (dotEl) {
+          const mph = mphAtMiles(s.points, currentMiles);
+          dotEl.setAttribute("cx", xScale(currentMiles).toFixed(1));
+          dotEl.setAttribute("cy", yScale(mph ?? 0).toFixed(1));
+          dotEl.setAttribute("opacity", mph === null ? "0" : "1");
+        }
+      }
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playbackEngine.subscribe, series, rideStartMilesById]);
+
+  if (!activeRoute || series.length === 0) return null;
+
+  const cornerRanges = corners.map((corner) => ({
+    corner,
+    startMiles: corner.startArcLengthMeters / METERS_PER_MILE,
+    endMiles: corner.endArcLengthMeters / METERS_PER_MILE,
+  }));
 
   const milesFromPointer = (event: { clientX: number }): number | null => {
     const svg = svgRef.current;
@@ -161,10 +223,40 @@ export default function SpeedChartPanel({
               <path
                 key={s.rideId}
                 d={linePath(s.points)}
-                className="speed-chart-line"
+                className={`speed-chart-line${
+                  playbackEngine.hasPlayableRides ? " speed-chart-line--ghost" : ""
+                }`}
                 style={{ stroke: s.color }}
               />
             ))}
+
+            {playbackEngine.hasPlayableRides &&
+              series.map((s) => (
+                <path
+                  key={`live-${s.rideId}`}
+                  ref={(el) => {
+                    if (el) overlayPathRefs.current.set(s.rideId, el);
+                    else overlayPathRefs.current.delete(s.rideId);
+                  }}
+                  className="speed-chart-line speed-chart-line--live"
+                  style={{ stroke: s.color, filter: `drop-shadow(0 0 4px ${s.color})` }}
+                />
+              ))}
+
+            {playbackEngine.hasPlayableRides &&
+              series.map((s) => (
+                <circle
+                  key={`dot-${s.rideId}`}
+                  ref={(el) => {
+                    if (el) overlayDotRefs.current.set(s.rideId, el);
+                    else overlayDotRefs.current.delete(s.rideId);
+                  }}
+                  r={4}
+                  className="speed-chart-live-dot"
+                  style={{ fill: s.color, filter: `drop-shadow(0 0 5px ${s.color})` }}
+                  opacity={0}
+                />
+              ))}
 
             {hoverMiles !== null && (
               <line

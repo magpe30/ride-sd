@@ -7,6 +7,8 @@ import CornerPanel from "@/components/panel/CornerPanel";
 import RoutePanel from "@/components/panel/RoutePanel";
 import SpeedChartPanel from "@/components/panel/SpeedChartPanel";
 import UploadPanel from "@/components/panel/UploadPanel";
+import PlaybackBar from "@/components/playback/PlaybackBar";
+import { usePlaybackEngine } from "@/components/playback/usePlaybackEngine";
 import { routes } from "@/data/routes";
 import type { Corner } from "@/lib/geo/corners";
 import { availableDirections } from "@/lib/gpx/compareCorners";
@@ -21,6 +23,8 @@ export default function Home() {
 
   const directions = useMemo(() => availableDirections(loadedRides), [loadedRides]);
   const activeDirection = direction && directions.includes(direction) ? direction : (directions[0] ?? null);
+
+  const playbackEngine = usePlaybackEngine(loadedRides, activeDirection);
 
   const handleAddRide = (loaded: LoadedRide) => {
     setLoadedRides((prev) => [...prev, loaded]);
@@ -68,12 +72,16 @@ export default function Home() {
         direction={activeDirection}
         selectedCorner={selectedCorner}
         onSelectCorner={setSelectedCorner}
+        playbackEngine={playbackEngine}
       />
+      <PlaybackBar engine={playbackEngine} loadedRides={loadedRides} />
       <RideMap
         selectedRouteId={selectedRouteId}
         onSelectRoute={setSelectedRouteId}
         loadedRides={loadedRides}
         selectedCorner={selectedCorner}
+        direction={activeDirection}
+        playbackEngine={playbackEngine}
       />
     </main>
   );

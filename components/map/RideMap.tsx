@@ -19,8 +19,15 @@ import {
   pointAtArcLength,
   sliceLineByArcLength,
 } from "@/lib/geo/measure";
-import { buildSpeedTrace, offsetCoordinatesPerpendicular } from "@/lib/gpx/renderTrace";
+import type { Pass } from "@/lib/gpx/passes";
+import {
+  buildSpeedTrace,
+  offsetCoordinatesPerpendicular,
+  positionAtArcLength,
+} from "@/lib/gpx/renderTrace";
 import type { LoadedRide } from "@/lib/gpx/session";
+
+import type { PlaybackEngine } from "../playback/usePlaybackEngine";
 
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -104,13 +111,32 @@ type RideMapProps = {
   onSelectRoute: (id: string) => void;
   loadedRides: LoadedRide[];
   selectedCorner: Corner | null;
+  direction: Pass["direction"] | null;
+  playbackEngine: PlaybackEngine;
 };
+
+// A lane-offset trace for one loaded ride's pass in the currently
+// active direction — cached so the per-frame playback marker can be
+// positioned by simple interpolation instead of recomputing the trace
+// on every animation frame.
+type RideTraceCache = {
+  offsetCoordinates: [number, number][];
+  arcLengthsMeters: number[];
+  direction: Pass["direction"];
+};
+
+// How far back along the ride's own direction of travel to look when
+// computing the playback marker's heading — mirrors the same
+// tip/behind approach the route-draw animation uses.
+const PLAYBACK_HEADING_LOOKBACK_METERS = 15;
 
 export default function RideMap({
   selectedRouteId,
   onSelectRoute,
   loadedRides,
   selectedCorner,
+  direction,
+  playbackEngine,
 }: RideMapProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -123,6 +149,14 @@ export default function RideMap({
   const markersRef = useRef<Map<string, Marker>>(new Map());
   const uploadedLayerIdsRef = useRef<string[]>([]);
   const riderMarkerRef = useRef<Marker | null>(null);
+  const rideTracesRef = useRef<Map<string, RideTraceCache>>(new Map());
+  const rideMarkersRef = useRef<Map<string, Marker>>(new Map());
+  // Lets drawRoute() (captured once at mount) see whether rides are
+  // currently loaded without depending on the `loadedRides` prop
+  // directly — once real ride data exists, its own per-ride playback
+  // markers replace the generic single "previewing this route" rider,
+  // so drawRoute skips creating/animating it.
+  const hasLoadedRidesRef = useRef(false);
   // Bumped on every drawRoute() call so a stale in-flight animation
   // (e.g. the user clicks a different route before the first one
   // finishes) can recognize it's obsolete and stop updating anything.
@@ -148,6 +182,7 @@ export default function RideMap({
 
     mapRef.current = map;
     const markers = markersRef.current;
+    const rideMarkers = rideMarkersRef.current;
 
     map.on("load", () => {
       map.addSource(SELECTED_ROUTE_SOURCE, {
@@ -305,8 +340,12 @@ export default function RideMap({
       const durationMs = routeDrawDurationMs(route.distanceMiles);
       const token = ++routeAnimationTokenRef.current;
 
-      const rider = getRiderMarker();
-      rider.setLngLat(coordinates[0] as [number, number]).addTo(map);
+      // Once real ride data is loaded, each ride gets its own colored
+      // playback marker (see the playback-engine subscription effect
+      // below) — the generic preview rider would just be a second,
+      // unrelated bike icon animating over the actual ride data.
+      const rider = hasLoadedRidesRef.current ? null : getRiderMarker();
+      rider?.setLngLat(coordinates[0] as [number, number]).addTo(map);
 
       const animate = (now: number) => {
         if (routeAnimationTokenRef.current !== token) return;
@@ -323,11 +362,13 @@ export default function RideMap({
           },
         });
 
-        const tip = coordinates[currentIndex - 1];
-        const behind = coordinates[Math.max(0, currentIndex - 3)];
-        rider.setLngLat([tip[0], tip[1]]);
-        if (behind[0] !== tip[0] || behind[1] !== tip[1]) {
-          rider.setRotation(bearingDegrees(behind, tip));
+        if (rider) {
+          const tip = coordinates[currentIndex - 1];
+          const behind = coordinates[Math.max(0, currentIndex - 3)];
+          rider.setLngLat([tip[0], tip[1]]);
+          if (behind[0] !== tip[0] || behind[1] !== tip[1]) {
+            rider.setRotation(bearingDegrees(behind, tip));
+          }
         }
 
         if (progress < 1) {
@@ -518,6 +559,8 @@ export default function RideMap({
       markers.clear();
       riderMarkerRef.current?.remove();
       riderMarkerRef.current = null;
+      rideMarkers.forEach((marker) => marker.remove());
+      rideMarkers.clear();
       map.remove();
       mapRef.current = null;
     };
@@ -532,6 +575,13 @@ export default function RideMap({
 
   useEffect(() => {
     renderRidesRef.current(loadedRides);
+    hasLoadedRidesRef.current = loadedRides.length > 0;
+    if (loadedRides.length > 0) {
+      // A generic preview rider from browsing routes before any upload
+      // would otherwise linger, stale, once real ride data takes over.
+      riderMarkerRef.current?.remove();
+      riderMarkerRef.current = null;
+    }
   }, [loadedRides]);
 
   const activeRouteId = loadedRides[0]?.ride.route.id ?? null;
@@ -549,6 +599,105 @@ export default function RideMap({
     const route = loadedRides[0]?.ride.route ?? null;
     highlightCornerRef.current(selectedCorner, route);
   }, [selectedCorner, loadedRides]);
+
+  // Caches each ride's lane-offset trace for whichever pass matches the
+  // currently active direction, keyed by ride id — the playback marker
+  // below reads from this instead of recomputing the trace every frame.
+  // The lane-offset formula here must match the one renderRidesRef uses
+  // for the static line so the animated marker rides exactly on top of
+  // the line the user already sees, not a slightly different path.
+  useEffect(() => {
+    const traces = new Map<string, RideTraceCache>();
+
+    if (direction) {
+      loadedRides.forEach((loaded, rideIndex) => {
+        const pass = loaded.ride.passes.find((p) => p.direction === direction);
+        if (!pass) return;
+
+        const trace = buildSpeedTrace(
+          pass.samples,
+          pass.speedProfile,
+          loaded.ride.route.line.coordinates
+        );
+        if (trace.coordinates.length < 2) return;
+
+        const laneOffsetMeters =
+          (rideIndex - (loadedRides.length - 1) / 2) * RIDE_LANE_OFFSET_METERS;
+        const offsetCoordinates = offsetCoordinatesPerpendicular(
+          trace.coordinates,
+          laneOffsetMeters
+        );
+
+        traces.set(loaded.id, {
+          offsetCoordinates,
+          arcLengthsMeters: trace.arcLengthsMeters,
+          direction: pass.direction,
+        });
+      });
+    }
+
+    rideTracesRef.current = traces;
+  }, [loadedRides, direction]);
+
+  // Drives one marker per loaded ride from the playback engine's
+  // per-frame state — imperative (no React state per frame) for the
+  // same reason drawRoute()'s animation is: this needs to run at a
+  // smooth 60fps without triggering a React re-render every frame.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const markers = rideMarkersRef.current;
+
+    const unsubscribe = playbackEngine.subscribe((states) => {
+      const activeIds = new Set(states.map((s) => s.rideId));
+
+      markers.forEach((marker, id) => {
+        if (!activeIds.has(id)) {
+          marker.remove();
+          markers.delete(id);
+        }
+      });
+
+      for (const state of states) {
+        const trace = rideTracesRef.current.get(state.rideId);
+        if (!trace) continue;
+
+        const traceLike = {
+          coordinates: trace.offsetCoordinates,
+          arcLengthsMeters: trace.arcLengthsMeters,
+          colorStops: [],
+        };
+        const position = positionAtArcLength(traceLike, state.arcLengthMeters);
+        if (!position) continue;
+
+        let marker = markers.get(state.rideId);
+        if (!marker) {
+          const loaded = loadedRides.find((r) => r.id === state.rideId);
+          const el = document.createElement("div");
+          el.className = "ride-rider-marker";
+          if (loaded) el.style.setProperty("--rider-glow-color", loaded.color);
+          el.innerHTML = RIDER_ICON_SVG;
+          marker = new Marker({ element: el, rotationAlignment: "map" });
+          marker.setLngLat(position).addTo(map);
+          markers.set(state.rideId, marker);
+        } else {
+          marker.setLngLat(position);
+        }
+
+        const directionSign = trace.direction === "forward" ? 1 : -1;
+        const behindArc =
+          state.arcLengthMeters - directionSign * PLAYBACK_HEADING_LOOKBACK_METERS;
+        const behindPosition = positionAtArcLength(traceLike, behindArc);
+        if (behindPosition && (behindPosition[0] !== position[0] || behindPosition[1] !== position[1])) {
+          marker.setRotation(bearingDegrees(behindPosition, position));
+        }
+      }
+    });
+
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playbackEngine.subscribe, loadedRides]);
 
   return (
     <div

@@ -6,7 +6,7 @@
 // domain instead of aligning two GPS traces against each other.
 import type { Corner } from "../geo/corners";
 import type { Pass } from "./passes";
-import type { SpeedSample } from "./speed";
+import { speedAtArcLengthMeters, type SpeedSample } from "./speed";
 
 export type CornerMetrics = {
   corner: Corner;
@@ -39,31 +39,6 @@ function median(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
-
-// Linearly interpolates speed at a target arc-length. `sortedByArc` must
-// be sorted ascending by arcLengthMeters.
-function speedAtArcLength(
-  sortedByArc: readonly SpeedSample[],
-  targetArcLengthMeters: number
-): number {
-  const first = sortedByArc[0];
-  const last = sortedByArc[sortedByArc.length - 1];
-
-  if (targetArcLengthMeters <= first.arcLengthMeters) return first.speedMps;
-  if (targetArcLengthMeters >= last.arcLengthMeters) return last.speedMps;
-
-  for (let i = 1; i < sortedByArc.length; i += 1) {
-    if (sortedByArc[i].arcLengthMeters >= targetArcLengthMeters) {
-      const a = sortedByArc[i - 1];
-      const b = sortedByArc[i];
-      const span = b.arcLengthMeters - a.arcLengthMeters;
-      const t = span > 0 ? (targetArcLengthMeters - a.arcLengthMeters) / span : 0;
-      return a.speedMps + (b.speedMps - a.speedMps) * t;
-    }
-  }
-
-  return last.speedMps;
 }
 
 export function computeCornerMetrics(
@@ -110,9 +85,9 @@ export function computeCornerMetrics(
   const outboundOffset =
     passDirection === "forward" ? APPROACH_EXIT_OFFSET_METERS : -APPROACH_EXIT_OFFSET_METERS;
 
-  const approachSpeedMps = speedAtArcLength(sortedByArc, entryArc + inboundOffset);
-  const exitSpeedMps = speedAtArcLength(sortedByArc, exitArc + outboundOffset);
-  const apexSpeedMps = speedAtArcLength(sortedByArc, corner.apexArcLengthMeters);
+  const approachSpeedMps = speedAtArcLengthMeters(sortedByArc, entryArc + inboundOffset);
+  const exitSpeedMps = speedAtArcLengthMeters(sortedByArc, exitArc + outboundOffset);
+  const apexSpeedMps = speedAtArcLengthMeters(sortedByArc, corner.apexArcLengthMeters);
 
   const cornerLengthMeters = corner.endArcLengthMeters - corner.startArcLengthMeters;
 

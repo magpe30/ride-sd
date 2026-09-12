@@ -22,6 +22,8 @@ export type SpeedColorStop = {
 export type SpeedTrace = {
   coordinates: [number, number][];
   colorStops: SpeedColorStop[];
+  /** Each coordinate's original (pre-offset) arc-length, same order/length as `coordinates`. */
+  arcLengthsMeters: number[];
 };
 
 // Slow -> neon-cyan, fast -> neon-magenta, very fast -> hot white —
@@ -77,7 +79,8 @@ export function buildSpeedTrace(
 ): SpeedTrace {
   const referenceCumulative = referenceLine ? cumulativeDistancesMeters(referenceLine) : null;
 
-  const points: Array<{ lon: number; lat: number; speedMps: number }> = [];
+  const points: Array<{ lon: number; lat: number; speedMps: number; arcLengthMeters: number }> =
+    [];
 
   for (let i = 0; i < samples.length; i += 1) {
     const sample = samples[i];
@@ -88,11 +91,15 @@ export function buildSpeedTrace(
 
     const previous = points[points.length - 1];
     if (previous && previous.lon === lon && previous.lat === lat) continue;
-    points.push({ lon, lat, speedMps: speedProfile[i]?.speedMps ?? 0 });
+    points.push({ lon, lat, speedMps: speedProfile[i]?.speedMps ?? 0, arcLengthMeters: sample.arcLengthMeters });
   }
 
   if (points.length < 2) {
-    return { coordinates: points.map((p) => [p.lon, p.lat]), colorStops: [] };
+    return {
+      coordinates: points.map((p) => [p.lon, p.lat]),
+      colorStops: [],
+      arcLengthsMeters: points.map((p) => p.arcLengthMeters),
+    };
   }
 
   const cumulative = [0];
@@ -116,7 +123,47 @@ export function buildSpeedTrace(
     }
   }
 
-  return { coordinates: points.map((p) => [p.lon, p.lat]), colorStops };
+  return {
+    coordinates: points.map((p) => [p.lon, p.lat]),
+    colorStops,
+    arcLengthsMeters: points.map((p) => p.arcLengthMeters),
+  };
+}
+
+// Interpolates a position along an already-built (and possibly
+// lane-offset) trace at a given original arc-length — used to place a
+// playback marker exactly on the same line the ride's trace draws,
+// rather than recomputing an independent path. Works whether the
+// trace's arc-lengths run ascending (forward pass) or descending
+// (reverse pass); the target is clamped to whichever end of the
+// covered range it's closest to if it falls outside it.
+export function positionAtArcLength(
+  trace: SpeedTrace,
+  targetArcLengthMeters: number
+): [number, number] | null {
+  const { coordinates, arcLengthsMeters } = trace;
+  if (coordinates.length === 0) return null;
+  if (coordinates.length === 1) return coordinates[0];
+
+  for (let i = 1; i < arcLengthsMeters.length; i += 1) {
+    const a = arcLengthsMeters[i - 1];
+    const b = arcLengthsMeters[i];
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    if (targetArcLengthMeters >= lo && targetArcLengthMeters <= hi) {
+      const span = b - a;
+      const t = span !== 0 ? (targetArcLengthMeters - a) / span : 0;
+      const pa = coordinates[i - 1];
+      const pb = coordinates[i];
+      return [pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t];
+    }
+  }
+
+  const firstArc = arcLengthsMeters[0];
+  const lastArc = arcLengthsMeters[arcLengthsMeters.length - 1];
+  return Math.abs(targetArcLengthMeters - firstArc) <= Math.abs(targetArcLengthMeters - lastArc)
+    ? coordinates[0]
+    : coordinates[coordinates.length - 1];
 }
 
 const METERS_PER_DEGREE_LAT = 111320;

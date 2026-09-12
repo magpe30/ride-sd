@@ -36,3 +36,30 @@ export function deriveSpeedProfile(samples: readonly MatchedSample[]): SpeedSamp
     speedMps: Math.max(0, smoothedMps[i]),
   }));
 }
+
+// Linearly interpolates speed at a target arc-length. `sortedByArc` must
+// be sorted ascending by arcLengthMeters — shared by per-corner metrics
+// (lib/gpx/cornerMetrics.ts) and ride playback (lib/gpx/playback.ts),
+// which both need "how fast was this ride at this point on the road."
+export function speedAtArcLengthMeters(
+  sortedByArc: readonly SpeedSample[],
+  targetArcLengthMeters: number
+): number {
+  const first = sortedByArc[0];
+  const last = sortedByArc[sortedByArc.length - 1];
+
+  if (targetArcLengthMeters <= first.arcLengthMeters) return first.speedMps;
+  if (targetArcLengthMeters >= last.arcLengthMeters) return last.speedMps;
+
+  for (let i = 1; i < sortedByArc.length; i += 1) {
+    if (sortedByArc[i].arcLengthMeters >= targetArcLengthMeters) {
+      const a = sortedByArc[i - 1];
+      const b = sortedByArc[i];
+      const span = b.arcLengthMeters - a.arcLengthMeters;
+      const t = span > 0 ? (targetArcLengthMeters - a.arcLengthMeters) / span : 0;
+      return a.speedMps + (b.speedMps - a.speedMps) * t;
+    }
+  }
+
+  return last.speedMps;
+}
