@@ -56,6 +56,30 @@ body {
   filter: drop-shadow(0 0 6px var(--rider-glow-color)) drop-shadow(0 0 2px rgba(255, 255, 255, 0.8));
 }
 
+/* A floating live-speed readout above the rider marker, like a
+   broadcast timing-tower chip — its own Marker (see RideMap.tsx) so it
+   never rotates with the bike's heading. */
+.ride-speed-label {
+  --rider-glow-color: #ff2fb0;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  background: rgba(12, 10, 20, 0.85);
+  border: 1px solid var(--rider-glow-color);
+  border-radius: 3px;
+  color: #ffffff;
+  font-family: var(--font-display-stack);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    0 0 6px var(--rider-glow-color);
+}
+
 @keyframes ride-marker-pulse {
   0% {
     box-shadow:
@@ -852,7 +876,8 @@ body {
 }
 
 .speed-chart-play,
-.speed-chart-reset {
+.speed-chart-reset,
+.speed-chart-camera-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -869,18 +894,21 @@ body {
 }
 
 .speed-chart-play:hover,
-.speed-chart-reset:hover {
+.speed-chart-reset:hover,
+.speed-chart-camera-toggle:hover {
   background: rgba(47, 224, 255, 0.22);
   border-color: var(--neon-cyan);
 }
 
-.speed-chart-reset {
+.speed-chart-reset,
+.speed-chart-camera-toggle {
   background: transparent;
   border-color: var(--chrome-panel-border);
   color: var(--chrome-text-muted);
 }
 
-.speed-chart-reset:hover {
+.speed-chart-reset:hover,
+.speed-chart-camera-toggle:hover {
   color: var(--chrome-text);
   border-color: var(--chrome-text-muted);
   background: rgba(255, 255, 255, 0.06);

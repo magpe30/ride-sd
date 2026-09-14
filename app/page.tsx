@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import RideMap from "@/components/map/RideMap";
+import RideMap, { type CameraMode } from "@/components/map/RideMap";
 import CornerPanel from "@/components/panel/CornerPanel";
 import RoutePanel from "@/components/panel/RoutePanel";
 import SpeedChartPanel from "@/components/panel/SpeedChartPanel";
@@ -19,6 +19,7 @@ export default function Home() {
   const [loadedRides, setLoadedRides] = useState<LoadedRide[]>([]);
   const [selectedCorner, setSelectedCorner] = useState<Corner | null>(null);
   const [direction, setDirection] = useState<Pass["direction"] | null>(null);
+  const [cameraMode, setCameraMode] = useState<CameraMode>("overview");
 
   const directions = useMemo(() => availableDirections(loadedRides), [loadedRides]);
   const activeDirection = direction && directions.includes(direction) ? direction : (directions[0] ?? null);
@@ -72,6 +73,8 @@ export default function Home() {
         selectedCorner={selectedCorner}
         onSelectCorner={setSelectedCorner}
         playbackEngine={playbackEngine}
+        cameraMode={cameraMode}
+        onChangeCameraMode={setCameraMode}
       />
       <RideMap
         selectedRouteId={selectedRouteId}
@@ -80,6 +83,7 @@ export default function Home() {
         selectedCorner={selectedCorner}
         direction={activeDirection}
         playbackEngine={playbackEngine}
+        cameraMode={cameraMode}
       />
     </main>
   );

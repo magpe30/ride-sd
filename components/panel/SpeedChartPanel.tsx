@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { detectCorners, type Corner } from "@/lib/geo/corners";
+import type { CameraMode } from "@/components/map/RideMap";
 import type { Pass } from "@/lib/gpx/passes";
 import { buildSpeedChartSeries, mphAtMiles } from "@/lib/gpx/speedChart";
 import type { LoadedRide } from "@/lib/gpx/session";
@@ -16,6 +17,8 @@ type SpeedChartPanelProps = {
   selectedCorner: Corner | null;
   onSelectCorner: (corner: Corner | null) => void;
   playbackEngine: PlaybackEngine;
+  cameraMode: CameraMode;
+  onChangeCameraMode: (mode: CameraMode) => void;
 };
 
 const METERS_PER_MILE = 1609.344;
@@ -32,6 +35,8 @@ export default function SpeedChartPanel({
   selectedCorner,
   onSelectCorner,
   playbackEngine,
+  cameraMode,
+  onChangeCameraMode,
 }: SpeedChartPanelProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverMiles, setHoverMiles] = useState<number | null>(null);
@@ -205,6 +210,46 @@ export default function SpeedChartPanel({
                     strokeLinejoin="round"
                   />
                 </svg>
+              </button>
+              <button
+                type="button"
+                className="speed-chart-camera-toggle"
+                onClick={() => onChangeCameraMode(cameraMode === "overview" ? "chase" : "overview")}
+                aria-label={
+                  cameraMode === "overview" ? "Switch to chase camera" : "Switch to overview camera"
+                }
+                title={
+                  cameraMode === "overview"
+                    ? "Overview (track map) — click for chase cam"
+                    : "Chase cam — click for overview (track map)"
+                }
+              >
+                {cameraMode === "overview" ? (
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                    <rect
+                      x="2"
+                      y="2"
+                      width="12"
+                      height="12"
+                      rx="1.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                    />
+                    <circle cx="8" cy="8" r="2" fill="currentColor" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                    <path
+                      d="M3 12 L6 4 L10 4 L13 12 Z"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinejoin="round"
+                    />
+                    <circle cx="8" cy="8.5" r="1.6" fill="currentColor" />
+                  </svg>
+                )}
               </button>
             </div>
           )}

@@ -59,28 +59,84 @@ function routeDrawDurationMs(distanceMiles: number): number {
 // Drawn top-down (like Uber/Google Maps' moving-vehicle markers, not a
 // side profile) with the nose at the top of the viewBox — so rotation
 // 0 = pointing north, matching bearingDegrees()'s convention directly,
-// with no offset needed. Shaded body + a rear "tail light" accent for
-// the same at-a-glance "which end is the front" read Uber's own
-// vehicle marker uses.
+// with no offset needed. Unlike a car, a motorcycle viewed strictly
+// top-down is just a thin sliver — not very recognizable on its own —
+// so a rider silhouette is drawn on top of the bike (the same trick
+// Grab/Gojek's motorbike markers use).
+//
+// Volume is faked the way low-poly game icons do it, not with any real
+// shading/rendering: every shape is angular (straight edges, not
+// curves) and drawn twice — a dark "shadow" copy offset down-right,
+// then the lit face on top — so a sliver of the dark copy peeks out
+// along the bottom-right edges like a beveled, extruded block. A thin
+// highlight stroke along the opposite (top-left) edge sells the same
+// "light from upper-left" read. Ground shadow, headlight glow, and the
+// per-ride color accent stripe are unchanged from the flat version.
 const RIDER_ICON_SVG = `
-  <svg viewBox="0 0 24 40" width="24" height="40">
+  <svg viewBox="0 0 24 40" width="27" height="45">
     <defs>
       <linearGradient id="riderBody" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#ffffff" />
-        <stop offset="55%" stop-color="#e9e2fb" />
-        <stop offset="100%" stop-color="#b9a3ef" />
+        <stop offset="45%" stop-color="#ddd3fa" />
+        <stop offset="100%" stop-color="#9c82e8" />
       </linearGradient>
     </defs>
-    <ellipse cx="12" cy="34" rx="4.5" ry="3" fill="#0a0e13" />
-    <ellipse cx="12" cy="7" rx="4" ry="2.6" fill="#0a0e13" />
-    <line x1="5" y1="8" x2="19" y2="8" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
+
+    <ellipse cx="12" cy="35.5" rx="7" ry="2.3" fill="#000000" opacity="0.3" />
+
+    <ellipse cx="13.1" cy="35.2" rx="4.5" ry="3" fill="#000000" opacity="0.55" />
+    <ellipse cx="12" cy="34" rx="4.5" ry="3" fill="#100d1c" stroke="#4a4370" stroke-width="0.6" />
+    <ellipse cx="12.7" cy="7.7" rx="4" ry="2.6" fill="#000000" opacity="0.55" />
+    <ellipse cx="12" cy="7" rx="4" ry="2.6" fill="#100d1c" stroke="#4a4370" stroke-width="0.6" />
+
+    <line x1="5" y1="8" x2="19" y2="8" stroke="#d8d0f2" stroke-width="2" stroke-linecap="round" />
+    <rect x="3.6" y="6.9" width="2.4" height="2.4" rx="0.5" fill="#100d1c" />
+    <rect x="18" y="6.9" width="2.4" height="2.4" rx="0.5" fill="#100d1c" />
+
+    <rect x="15.6" y="25" width="2.2" height="6.4" rx="1" fill="#241f3d" opacity="0.9" />
+
     <path
-      d="M12 5 L16.5 13 L15 31 Q12 34 9 31 L7.5 13 Z"
+      d="M12 5 L16.4 13 L16 23 L13.5 31 L10.5 31 L8 23 L7.6 13 Z"
+      transform="translate(1.5, 1.8)"
+      fill="#241f3d"
+    />
+    <path
+      d="M12 5 L16.4 13 L16 23 L13.5 31 L10.5 31 L8 23 L7.6 13 Z"
       fill="url(#riderBody)"
       stroke="#ffffff"
-      stroke-width="0.8"
+      stroke-width="0.7"
     />
-    <path d="M9.5 10.5 L14.5 10.5 L13.3 15 L10.7 15 Z" fill="#241f3d" opacity="0.75" />
+    <path
+      d="M12 5 L7.6 13 L8 23"
+      fill="none"
+      stroke="#ffffff"
+      stroke-width="0.6"
+      stroke-linecap="round"
+      opacity="0.7"
+    />
+    <path
+      d="M12 8.5 L12 20"
+      stroke="var(--rider-glow-color)"
+      stroke-width="1.4"
+      stroke-linecap="round"
+      opacity="0.9"
+    />
+
+    <path
+      d="M9.3 16.5 L14.7 16.5 L13.8 23 L12 25 L10.2 23 Z"
+      transform="translate(0.9, 1.1)"
+      fill="#0a0716"
+      opacity="0.95"
+    />
+    <path d="M9.3 16.5 L14.7 16.5 L13.8 23 L12 25 L10.2 23 Z" fill="#1e1838" />
+
+    <ellipse cx="13" cy="14.2" rx="2.6" ry="2.9" fill="#0a0716" />
+    <ellipse cx="12" cy="13" rx="2.6" ry="2.9" fill="#211a3d" stroke="#ffffff" stroke-width="0.5" />
+    <ellipse cx="12.7" cy="12.1" rx="1.05" ry="0.65" fill="#8fd8ff" opacity="0.85" />
+
+    <circle cx="12" cy="5.3" r="2.2" fill="#ffffff" opacity="0.25" />
+    <circle cx="12" cy="5.3" r="1.1" fill="#ffffff" />
+
     <rect x="9.5" y="29.5" width="5" height="2.4" rx="1.2" fill="#ff3b3b" />
   </svg>
 `;
@@ -113,6 +169,7 @@ type RideMapProps = {
   selectedCorner: Corner | null;
   direction: Pass["direction"] | null;
   playbackEngine: PlaybackEngine;
+  cameraMode: CameraMode;
 };
 
 // A lane-offset trace for one loaded ride's pass in the currently
@@ -130,15 +187,26 @@ type RideTraceCache = {
 // tip/behind approach the route-draw animation uses.
 const PLAYBACK_HEADING_LOOKBACK_METERS = 15;
 
-// A pitched, close, bearing-following "chase cam" locked to the first
-// loaded ride while it's actually playing — a flat overview can't show
-// speed/lean/lead-vs-chase the way a low, following angle does. It
-// engages/disengages with an eased transition and otherwise updates
-// every frame via jumpTo (no easing needed — the playback engine
+// Two camera styles for following the lead ride during playback — an
+// F1-broadcast-style flat "track map" overview (stable, always north-up,
+// never rotates — closest to how those graphics actually look), and a
+// pitched, close, bearing-following chase cam for a more dramatic replay.
+// Both engage/disengage with an eased transition and otherwise update
+// every frame via jumpTo (no easing needed there — the playback engine
 // already delivers smooth per-frame positions).
+export type CameraMode = "overview" | "chase";
+
+const CAMERA_TRANSITION_MS = 900;
+
+const OVERVIEW_PITCH_DEGREES = 0;
+const OVERVIEW_ZOOM = 15.4;
+// Fixed, not "whatever the map's bearing happened to be" — a broadcast
+// track map never rotates, which is the whole reason it stays readable
+// at a glance while the chase cam doesn't.
+const OVERVIEW_BEARING_DEGREES = 0;
+
 const CHASE_PITCH_DEGREES = 60;
 const CHASE_ZOOM = 17.5;
-const CHASE_TRANSITION_MS = 900;
 
 // A camera that snaps exactly onto the rider's true position every
 // frame holds it dead-center on screen at all times, by construction —
@@ -149,15 +217,19 @@ const CHASE_TRANSITION_MS = 900;
 // transitions), letting it lag slightly behind on acceleration and
 // coast up on deceleration — same principle as a real chase cam, and
 // on its own it's one real cue that speed changes rather than just
-// knowable from a number.
-//
-// The dominant cue, though, is zoom: pulling back at speed and tightening
-// up through corners is the standard racing-game trick for making speed
-// *felt* rather than just visible — it changes how fast the whole scene
-// sweeps past, not just where the rider sits in frame. Speeds are mapped
-// from what these routes actually produce (~10-55mph); a smoothed value
-// is used for the same jitter reasons as position/bearing.
-const CHASE_POSITION_LAG = 0.06;
+// knowable from a number. Used for both camera modes' position follow;
+// only chase mode additionally lags bearing/zoom.
+const FOLLOW_POSITION_LAG = 0.06;
+
+// The dominant speed cue in chase mode: pulling back at speed and
+// tightening up through corners is the standard racing-game trick for
+// making speed *felt* rather than just visible — it changes how fast
+// the whole scene sweeps past, not just where the rider sits in frame.
+// Speeds are mapped from what these routes actually produce
+// (~10-55mph); a smoothed value is used for the same jitter reasons as
+// position/bearing. The overview camera deliberately skips all of this
+// — it's meant to read like a stable broadcast graphic, not a
+// racing-game camera.
 const CHASE_BEARING_LAG = 0.1;
 const CHASE_ZOOM_LAG = 0.05;
 const CHASE_ZOOM_MIN_MPH = 10;
@@ -206,6 +278,7 @@ export default function RideMap({
   selectedCorner,
   direction,
   playbackEngine,
+  cameraMode,
 }: RideMapProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -220,19 +293,31 @@ export default function RideMap({
   const riderMarkerRef = useRef<Marker | null>(null);
   const rideTracesRef = useRef<Map<string, RideTraceCache>>(new Map());
   const rideMarkersRef = useRef<Map<string, Marker>>(new Map());
-  const chaseActiveRef = useRef(false);
-  // True only while the entrance easeTo (flat overview -> chase view)
-  // is still animating — per-frame jumpTo calls are held off until it
-  // finishes, since any camera method call interrupts an in-progress
-  // easeTo before it reaches its target pitch/zoom.
-  const chaseTransitioningRef = useRef(false);
-  const preChaseCameraRef = useRef<CameraSnapshot | null>(null);
-  // The camera's own (lagging) position/bearing while chasing — see the
-  // CHASE_POSITION_LAG comment above for why this can't just be the
-  // rider's true position every frame.
-  const chaseCameraPositionRef = useRef<[number, number] | null>(null);
-  const chaseCameraBearingRef = useRef<number | null>(null);
-  const chaseCameraZoomRef = useRef<number | null>(null);
+  const speedLabelMarkersRef = useRef<Map<string, Marker>>(new Map());
+  // Kept in sync via effect (see below) so the high-frequency playback
+  // subscription callback can read the current camera mode without
+  // itself depending on it — resubscribing every toggle click would
+  // work but this avoids the churn, matching the playingRef pattern.
+  const cameraModeRef = useRef<CameraMode>(cameraMode);
+  const followActiveRef = useRef(false);
+  // Which mode the camera is actually eased into right now — compared
+  // against cameraModeRef every frame so a toggle mid-playback is
+  // picked up on the next frame and re-eases into the new mode, the
+  // same way first engaging the camera does.
+  const followModeRef = useRef<CameraMode>("overview");
+  // True only while the entrance easeTo (flat overview -> follow view,
+  // or a mode switch between the two follow views) is still animating —
+  // per-frame jumpTo calls are held off until it finishes, since any
+  // camera method call interrupts an in-progress easeTo before it
+  // reaches its target pitch/zoom.
+  const followTransitioningRef = useRef(false);
+  const preFollowCameraRef = useRef<CameraSnapshot | null>(null);
+  // The camera's own (lagging) position/bearing while following — see
+  // the FOLLOW_POSITION_LAG comment above for why this can't just be
+  // the rider's true position every frame.
+  const followCameraPositionRef = useRef<[number, number] | null>(null);
+  const followCameraBearingRef = useRef<number | null>(null);
+  const followCameraZoomRef = useRef<number | null>(null);
   // Kept in sync via effect (see below) so the high-frequency playback
   // subscription callback can read the current playing state without
   // itself depending on it — resubscribing every play/pause click would
@@ -270,6 +355,7 @@ export default function RideMap({
     mapRef.current = map;
     const markers = markersRef.current;
     const rideMarkers = rideMarkersRef.current;
+    const speedLabelMarkers = speedLabelMarkersRef.current;
 
     map.on("load", () => {
       map.addSource(SELECTED_ROUTE_SOURCE, {
@@ -648,6 +734,8 @@ export default function RideMap({
       riderMarkerRef.current = null;
       rideMarkers.forEach((marker) => marker.remove());
       rideMarkers.clear();
+      speedLabelMarkers.forEach((marker) => marker.remove());
+      speedLabelMarkers.clear();
       map.remove();
       mapRef.current = null;
     };
@@ -727,38 +815,43 @@ export default function RideMap({
   }, [loadedRides, direction]);
 
   useEffect(() => {
+    cameraModeRef.current = cameraMode;
+  }, [cameraMode]);
+
+  useEffect(() => {
     playingRef.current = playbackEngine.playing;
 
-    // Exiting chase mode has to live here, keyed on the (low-frequency,
+    // Exiting follow mode has to live here, keyed on the (low-frequency,
     // ordinary React) `playing` value itself, rather than inside the
     // playback engine's per-frame subscription below: once playback
     // pauses or finishes, the engine stops producing frames entirely,
     // so that subscription's callback simply never fires again — there
     // would be no event left to trigger the "ease back" on.
-    if (!playbackEngine.playing && chaseActiveRef.current) {
-      chaseActiveRef.current = false;
-      chaseTransitioningRef.current = false;
-      chaseCameraPositionRef.current = null;
-      chaseCameraBearingRef.current = null;
-      chaseCameraZoomRef.current = null;
-      const previous = preChaseCameraRef.current;
-      preChaseCameraRef.current = null;
+    if (!playbackEngine.playing && followActiveRef.current) {
+      followActiveRef.current = false;
+      followTransitioningRef.current = false;
+      followCameraPositionRef.current = null;
+      followCameraBearingRef.current = null;
+      followCameraZoomRef.current = null;
+      const previous = preFollowCameraRef.current;
+      preFollowCameraRef.current = null;
       if (previous) {
-        mapRef.current?.easeTo({ ...previous, duration: CHASE_TRANSITION_MS });
+        mapRef.current?.easeTo({ ...previous, duration: CAMERA_TRANSITION_MS });
       }
     }
   }, [playbackEngine.playing]);
 
-  // Drives one marker per loaded ride, plus the chase camera, from the
-  // playback engine's per-frame state — imperative (no React state per
-  // frame) for the same reason drawRoute()'s animation is: this needs
-  // to run at a smooth 60fps without triggering a React re-render every
-  // frame.
+  // Drives one marker (plus a floating live-speed label) per loaded
+  // ride, and the follow camera, from the playback engine's per-frame
+  // state — imperative (no React state per frame) for the same reason
+  // drawRoute()'s animation is: this needs to run at a smooth 60fps
+  // without triggering a React re-render every frame.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     const markers = rideMarkersRef.current;
+    const speedLabels = speedLabelMarkersRef.current;
     const leadRideId = loadedRides[0]?.id;
 
     const unsubscribe = playbackEngine.subscribe((states) => {
@@ -768,6 +861,12 @@ export default function RideMap({
         if (!activeIds.has(id)) {
           marker.remove();
           markers.delete(id);
+        }
+      });
+      speedLabels.forEach((label, id) => {
+        if (!activeIds.has(id)) {
+          label.remove();
+          speedLabels.delete(id);
         }
       });
 
@@ -787,9 +886,10 @@ export default function RideMap({
         const position = positionAtArcLength(traceLike, state.arcLengthMeters);
         if (!position) continue;
 
+        const loaded = loadedRides.find((r) => r.id === state.rideId);
+
         let marker = markers.get(state.rideId);
         if (!marker) {
-          const loaded = loadedRides.find((r) => r.id === state.rideId);
           const el = document.createElement("div");
           el.className = "ride-rider-marker";
           if (loaded) el.style.setProperty("--rider-glow-color", loaded.color);
@@ -800,6 +900,24 @@ export default function RideMap({
         } else {
           marker.setLngLat(position);
         }
+
+        // A small floating "NN mph" chip above the marker, like a
+        // broadcast timing-tower readout — deliberately its own Marker
+        // (default viewport-aligned rotation) rather than a child of
+        // the rider icon's element, so it never rotates/tilts with the
+        // bike's own heading.
+        let speedLabel = speedLabels.get(state.rideId);
+        if (!speedLabel) {
+          const labelEl = document.createElement("div");
+          labelEl.className = "ride-speed-label";
+          if (loaded) labelEl.style.setProperty("--rider-glow-color", loaded.color);
+          speedLabel = new Marker({ element: labelEl, anchor: "bottom", offset: [0, -30] });
+          speedLabel.setLngLat(position).addTo(map);
+          speedLabels.set(state.rideId, speedLabel);
+        } else {
+          speedLabel.setLngLat(position);
+        }
+        speedLabel.getElement().textContent = `${Math.round(state.speedMps * MPS_TO_MPH)} mph`;
 
         const directionSign = trace.direction === "forward" ? 1 : -1;
         const behindArc =
@@ -821,68 +939,95 @@ export default function RideMap({
       }
 
       if (playingRef.current && leadCameraUpdate) {
-        if (!chaseActiveRef.current) {
-          chaseActiveRef.current = true;
-          chaseTransitioningRef.current = true;
-          preChaseCameraRef.current = {
-            center: map.getCenter().toArray() as [number, number],
-            zoom: map.getZoom(),
-            pitch: map.getPitch(),
-            bearing: map.getBearing(),
-          };
-          const initialBearing = leadCameraUpdate.bearing ?? map.getBearing();
+        const desiredMode = cameraModeRef.current;
+        const needsEngage = !followActiveRef.current || followModeRef.current !== desiredMode;
+
+        if (needsEngage) {
+          const isFirstEngage = !followActiveRef.current;
+          followActiveRef.current = true;
+          followModeRef.current = desiredMode;
+          followTransitioningRef.current = true;
+          // Only snapshot the pre-follow camera once, on the very first
+          // engage — re-easing between overview and chase mid-playback
+          // must not overwrite it with an already-in-follow state, or
+          // disengaging later would "return" to a follow camera instead
+          // of wherever the user actually had the map before pressing
+          // play.
+          if (isFirstEngage) {
+            preFollowCameraRef.current = {
+              center: map.getCenter().toArray() as [number, number],
+              zoom: map.getZoom(),
+              pitch: map.getPitch(),
+              bearing: map.getBearing(),
+            };
+          }
+
+          const targetBearing =
+            desiredMode === "chase"
+              ? (leadCameraUpdate.bearing ?? map.getBearing())
+              : OVERVIEW_BEARING_DEGREES;
+          const targetZoom = desiredMode === "chase" ? CHASE_ZOOM : OVERVIEW_ZOOM;
+          const targetPitch = desiredMode === "chase" ? CHASE_PITCH_DEGREES : OVERVIEW_PITCH_DEGREES;
+
           // Seeded to the entrance's own target, not left null — the
           // first per-frame update after the transition should ease
           // from exactly where the entrance animation left off, not
           // snap from some earlier stale value.
-          chaseCameraPositionRef.current = leadCameraUpdate.center;
-          chaseCameraBearingRef.current = initialBearing;
-          chaseCameraZoomRef.current = CHASE_ZOOM;
+          followCameraPositionRef.current = leadCameraUpdate.center;
+          followCameraBearingRef.current = targetBearing;
+          followCameraZoomRef.current = targetZoom;
           map.easeTo({
             center: leadCameraUpdate.center,
-            zoom: CHASE_ZOOM,
-            pitch: CHASE_PITCH_DEGREES,
-            bearing: initialBearing,
-            duration: CHASE_TRANSITION_MS,
+            zoom: targetZoom,
+            pitch: targetPitch,
+            bearing: targetBearing,
+            duration: CAMERA_TRANSITION_MS,
           });
           map.once("moveend", () => {
-            chaseTransitioningRef.current = false;
+            followTransitioningRef.current = false;
           });
-        } else if (!chaseTransitioningRef.current) {
-          // Eased toward the rider's true position/heading/zoom rather
-          // than snapped exactly onto them every frame — see
-          // CHASE_POSITION_LAG above for why an exact snap would hold
-          // the rider dead-center on screen at all times, with no
-          // visible cue for speed at all.
-          const prevPosition = chaseCameraPositionRef.current ?? leadCameraUpdate.center;
-          chaseCameraPositionRef.current = [
-            lerp(prevPosition[0], leadCameraUpdate.center[0], CHASE_POSITION_LAG),
-            lerp(prevPosition[1], leadCameraUpdate.center[1], CHASE_POSITION_LAG),
+        } else if (!followTransitioningRef.current) {
+          // Eased toward the rider's true position rather than snapped
+          // exactly onto it every frame — see FOLLOW_POSITION_LAG above
+          // for why an exact snap would hold the rider dead-center on
+          // screen at all times, with no visible cue for speed at all.
+          const prevPosition = followCameraPositionRef.current ?? leadCameraUpdate.center;
+          followCameraPositionRef.current = [
+            lerp(prevPosition[0], leadCameraUpdate.center[0], FOLLOW_POSITION_LAG),
+            lerp(prevPosition[1], leadCameraUpdate.center[1], FOLLOW_POSITION_LAG),
           ];
 
-          if (leadCameraUpdate.bearing !== undefined) {
-            const prevBearing = chaseCameraBearingRef.current ?? leadCameraUpdate.bearing;
-            chaseCameraBearingRef.current = lerpBearingDegrees(
-              prevBearing,
-              leadCameraUpdate.bearing,
-              CHASE_BEARING_LAG
+          if (followModeRef.current === "chase") {
+            if (leadCameraUpdate.bearing !== undefined) {
+              const prevBearing = followCameraBearingRef.current ?? leadCameraUpdate.bearing;
+              followCameraBearingRef.current = lerpBearingDegrees(
+                prevBearing,
+                leadCameraUpdate.bearing,
+                CHASE_BEARING_LAG
+              );
+            }
+
+            const prevZoom = followCameraZoomRef.current ?? CHASE_ZOOM;
+            followCameraZoomRef.current = lerp(
+              prevZoom,
+              targetChaseZoom(leadCameraUpdate.speedMps),
+              CHASE_ZOOM_LAG
             );
+
+            map.jumpTo({
+              center: followCameraPositionRef.current,
+              zoom: followCameraZoomRef.current,
+              ...(followCameraBearingRef.current !== null
+                ? { bearing: followCameraBearingRef.current }
+                : {}),
+            });
+          } else {
+            // Overview mode stays deliberately stable — fixed zoom,
+            // fixed north-up bearing, position is the only thing that
+            // follows — the point is a readable broadcast track map,
+            // not a racing-game camera.
+            map.jumpTo({ center: followCameraPositionRef.current });
           }
-
-          const prevZoom = chaseCameraZoomRef.current ?? CHASE_ZOOM;
-          chaseCameraZoomRef.current = lerp(
-            prevZoom,
-            targetChaseZoom(leadCameraUpdate.speedMps),
-            CHASE_ZOOM_LAG
-          );
-
-          map.jumpTo({
-            center: chaseCameraPositionRef.current,
-            zoom: chaseCameraZoomRef.current,
-            ...(chaseCameraBearingRef.current !== null
-              ? { bearing: chaseCameraBearingRef.current }
-              : {}),
-          });
         }
       }
     });
