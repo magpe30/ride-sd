@@ -3,7 +3,8 @@
 import { useRef, useState } from "react";
 
 import { routes } from "@/data/routes";
-import { detectAndAnalyzeRide, type AnalyzedRide } from "@/lib/gpx/analyzeRide";
+import { analyzeRide, type AnalyzedRide, type RideAnalysisResult } from "@/lib/gpx/analyzeRide";
+import { validateComparisonRoute } from "@/lib/gpx/comparison";
 import { parseGpx } from "@/lib/gpx/parse";
 import {
   createLoadedRide,
@@ -26,13 +27,29 @@ function summarizeRide(ride: AnalyzedRide): string {
   return `${ride.passes.length} ${passWord}, ${totalCorners} corner readings`;
 }
 
+function analysisErrorMessage(result: Extract<RideAnalysisResult, { ok: false }>): string {
+  switch (result.reason) {
+    case "ambiguous-route":
+      return "This GPX overlaps more than one supported route, so it was not added.";
+    case "no-usable-pass":
+      return "The route matched, but no continuous pass of at least 150 m was found.";
+    default:
+      return "No confident match — this GPX does not overlap enough of a supported route.";
+  }
+}
+
 export default function UploadPanel({ loadedRides, onAddRide, onRemoveRide }: UploadPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState<string | null>(null);
 
-  const activeRoute = loadedRides[0]?.ride.route ?? null;
   const atCapacity = loadedRides.length >= MAX_LOADED_RIDES;
+
+  const handleRemoveRide = (id: string) => {
+    setStatus("idle");
+    setMessage(null);
+    onRemoveRide(id);
+  };
 
   const handleFile = async (file: File) => {
     if (atCapacity) {
@@ -47,19 +64,19 @@ export default function UploadPanel({ loadedRides, onAddRide, onRemoveRide }: Up
     try {
       const text = await file.text();
       const track = parseGpx(text);
-      const analyzed = detectAndAnalyzeRide(track, routes);
+      const result = analyzeRide(track, routes);
 
-      if (!analyzed) {
+      if (!result.ok) {
         setStatus("error");
-        setMessage("No match — this GPX doesn't overlap any loaded route.");
+        setMessage(analysisErrorMessage(result));
         return;
       }
 
-      if (activeRoute && analyzed.route.id !== activeRoute.id) {
+      const analyzed = result.ride;
+      const routeValidation = validateComparisonRoute(analyzed, loadedRides);
+      if (!routeValidation.ok) {
         setStatus("error");
-        setMessage(
-          `This GPX matches "${analyzed.route.name}", but you're comparing rides on "${activeRoute.name}". Remove the current rides first to switch routes.`
-        );
+        setMessage(routeValidation.message);
         return;
       }
 
@@ -111,7 +128,7 @@ export default function UploadPanel({ loadedRides, onAddRide, onRemoveRide }: Up
               </span>
               <button
                 className="upload-panel-ride-remove"
-                onClick={() => onRemoveRide(loaded.id)}
+                onClick={() => handleRemoveRide(loaded.id)}
                 aria-label="Remove ride"
               >
                 ×
@@ -122,7 +139,11 @@ export default function UploadPanel({ loadedRides, onAddRide, onRemoveRide }: Up
       )}
 
       {message && (
-        <p className={`upload-panel-status${status === "error" ? " upload-panel-status--error" : ""}`}>
+        <p
+          role="status"
+          aria-live="polite"
+          className={`upload-panel-status${status === "error" ? " upload-panel-status--error" : ""}`}
+        >
           {message}
         </p>
       )}

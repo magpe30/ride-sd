@@ -23,10 +23,10 @@ pipeline for map-matching, smoothing, and analyzing rider GPX traces.
 
   | Route | Distance | Corners |
   |---|---|---|
-  | Palomar Mountain — South Grade / East Grade | 13.5 mi | 46 |
+  | Palomar Mountain — South Grade / East Grade | 13.5 mi | 114 |
   | Sunrise Highway | 19.8 mi | 45 |
-  | Montezuma Valley Road | 16.4 mi | 38 |
-  | Banner Grade | 14.3 mi | 46 |
+  | Montezuma Valley Road | 16.4 mi | 54 |
+  | Banner Grade | 14.3 mi | 86 |
 
 - Corner detection runs directly on that geometry (resampling + heading
   analysis) — no manual annotation, and it's the same math the GPX
@@ -42,11 +42,14 @@ pipeline for map-matching, smoothing, and analyzing rider GPX traces.
 - Speed is derived from map-matched arc-length over time and smoothed
   with a Savitzky-Golay filter — preserves real corner-speed shape
   instead of just blurring the signal like a moving average would.
-- Compare up to **3 rides** of the same route side by side: each ride
-  renders as its own lane on the map (color-coded, speed-gradient
-  line), and the **Corners** panel breaks down every corner's approach,
-  min/median/max, exit, speed lost/gained, and an estimated lean angle,
-  per ride. Click a corner to zoom the map to it.
+- Compare up to **3 passes** on the same route and in the same direction.
+  Passes are ordered by their recorded GPX timestamps: A is the oldest
+  baseline, followed by B and the latest C. Multiple passes may come from
+  one GPX recording. The corner panel shows B − A and C − A changes while
+  keeping the original single-pass view when only one pass is available.
+- Replay follows each pass's riding timestamps while excluding confirmed
+  stationary recording breaks, so a pre-ride stop does not freeze the replay
+  or count toward the speed profile.
 - GPX files never leave your browser and are never written to the
   repo — everything runs client-side.
 
@@ -65,7 +68,7 @@ pipeline for map-matching, smoothing, and analyzing rider GPX traces.
 
 ## Getting started
 
-Requires Node 20+.
+Requires Node 20.19+.
 
 ```bash
 git clone https://github.com/magpe30/ride-sd.git
@@ -83,6 +86,7 @@ nothing else to configure.
 npm run build   # production build
 npm run start   # serve the production build
 npm run lint    # eslint
+npm test        # unit and component tests
 ```
 
 ## Project structure
@@ -135,8 +139,9 @@ comparison, all in `lib/gpx/`:
 3. **`passes.ts`** — splits the map-matched track into direction-
    consistent passes, debounced so a brief repositioning during a stop
    doesn't register as a false reversal.
-4. **`speed.ts` / `smoothing.ts`** — derives speed from arc-length over
-   time and smooths it with a Savitzky-Golay filter.
+4. **`speed.ts` / `smoothing.ts`** — removes long stationary recording
+   breaks, derives speed from arc-length over riding time, and smooths it
+   with a Savitzky-Golay filter.
 5. **`cornerMetrics.ts` / `compareCorners.ts`** — samples the smoothed
    speed profile at each corner's boundaries (from `lib/geo/corners.ts`)
    and builds the cross-ride comparison shown in the Corners panel.

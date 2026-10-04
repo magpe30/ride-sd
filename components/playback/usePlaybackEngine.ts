@@ -47,7 +47,7 @@ const PLAYBACK_SPEED_MULTIPLIER = 10;
 // like the marker teleporting instead of animating).
 const MAX_FRAME_DT_SECONDS = 0.25;
 
-type PlaybackEntry = { pass: Pass; sortedSpeedProfile: SpeedSample[] };
+type PlaybackEntry = { pass: Pass; speedProfile: SpeedSample[] };
 
 function playableRideIds(loadedRides: readonly LoadedRide[], direction: Pass["direction"] | null): string[] {
   if (!direction) return [];
@@ -70,10 +70,7 @@ function buildEntries(
   for (const loaded of loadedRides) {
     const pass = loaded.ride.passes.find((p) => p.direction === direction);
     if (!pass || pass.samples.length < 2 || pass.speedProfile.length === 0) continue;
-    const sortedSpeedProfile = [...pass.speedProfile].sort(
-      (a, b) => a.arcLengthMeters - b.arcLengthMeters
-    );
-    entries.set(loaded.id, { pass, sortedSpeedProfile });
+    entries.set(loaded.id, { pass, speedProfile: pass.speedProfile });
   }
 
   return entries;
@@ -110,7 +107,7 @@ export function usePlaybackEngine(
     (entries: Map<string, PlaybackEntry>) => {
       const initial: RidePlaybackState[] = [];
       entries.forEach((entry, rideId) => {
-        initial.push(initialRidePlaybackState(rideId, entry.pass, entry.sortedSpeedProfile));
+        initial.push(initialRidePlaybackState(rideId, entry.pass, entry.speedProfile));
       });
       statesRef.current = initial;
       notify(initial);
@@ -164,7 +161,7 @@ export function usePlaybackEngine(
         const advanced = advanceRidePlayback(
           state.rideId,
           entry.pass,
-          entry.sortedSpeedProfile,
+          entry.speedProfile,
           state,
           dtSeconds
         );

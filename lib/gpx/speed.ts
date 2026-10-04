@@ -16,6 +16,131 @@ export type SpeedSample = {
 const SG_WINDOW_SAMPLES = 15;
 const SG_POLY_ORDER = 2;
 
+// The recorder stops emitting regular points during longer breaks. That
+// produces two samples several minutes apart at almost the same place and
+// makes a replay appear frozen even after its timeline is compressed. Treat
+// only these unambiguous gaps as breaks; ordinary low-speed riding remains.
+const MIN_STATIONARY_BREAK_MS = 30_000;
+const MAX_BREAK_MOVEMENT_METERS = 25;
+const STATIONARY_CLUSTER_RADIUS_METERS = 8;
+const MAX_TYPICAL_SAMPLE_INTERVAL_MS = 5_000;
+
+type IndexedSample = {
+  sample: MatchedSample;
+  originalIndex: number;
+  bridgeFromPrevious: boolean;
+};
+
+function typicalSampleIntervalMs(samples: readonly MatchedSample[]): number {
+  const intervals = samples
+    .slice(1)
+    .map((sample, index) => sample.timeMs - samples[index].timeMs)
+    .filter((interval) => interval > 0 && interval <= MAX_TYPICAL_SAMPLE_INTERVAL_MS)
+    .sort((a, b) => a - b);
+
+  return intervals.length > 0 ? intervals[Math.floor(intervals.length / 2)] : 1_000;
+}
+
+/**
+ * Collapses long, stationary recording gaps to one representative point.
+ * Returned timestamps keep normal riding intervals but remove break duration.
+ */
+export function removeStationaryBreaks(
+  samples: readonly MatchedSample[]
+): MatchedSample[] {
+  if (samples.length < 2) return [...samples];
+
+  const ranges: Array<{ start: number; end: number }> = [];
+
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = samples[index - 1];
+    const current = samples[index];
+    const gapMs = current.timeMs - previous.timeMs;
+    const movementMeters = Math.abs(current.arcLengthMeters - previous.arcLengthMeters);
+
+    if (
+      gapMs < MIN_STATIONARY_BREAK_MS ||
+      movementMeters > MAX_BREAK_MOVEMENT_METERS
+    ) {
+      continue;
+    }
+
+    const anchorArc = (previous.arcLengthMeters + current.arcLengthMeters) / 2;
+    let start = index - 1;
+    let end = index;
+
+    while (
+      start > 0 &&
+      Math.abs(samples[start - 1].arcLengthMeters - anchorArc) <=
+        STATIONARY_CLUSTER_RADIUS_METERS
+    ) {
+      start -= 1;
+    }
+
+    while (
+      end < samples.length - 1 &&
+      Math.abs(samples[end + 1].arcLengthMeters - anchorArc) <=
+        STATIONARY_CLUSTER_RADIUS_METERS
+    ) {
+      end += 1;
+    }
+
+    const previousRange = ranges[ranges.length - 1];
+    if (previousRange && start <= previousRange.end + 1) {
+      previousRange.end = Math.max(previousRange.end, end);
+    } else {
+      ranges.push({ start, end });
+    }
+
+    index = end;
+  }
+
+  if (ranges.length === 0) return [...samples];
+
+  const kept: IndexedSample[] = [];
+  let rangeIndex = 0;
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const range = ranges[rangeIndex];
+    if (!range || index < range.start) {
+      kept.push({ sample: samples[index], originalIndex: index, bridgeFromPrevious: false });
+      continue;
+    }
+
+    if (index === range.start) {
+      const representativeIndex = range.end;
+      kept.push({
+        sample: samples[representativeIndex],
+        originalIndex: representativeIndex,
+        bridgeFromPrevious: kept.length > 0,
+      });
+      index = range.end;
+      rangeIndex += 1;
+      continue;
+    }
+  }
+
+  const intervalMs = typicalSampleIntervalMs(samples);
+  return kept.reduce<MatchedSample[]>((rebased, entry, index) => {
+    if (index === 0) {
+      rebased.push({ ...entry.sample, timeMs: samples[0].timeMs });
+      return rebased;
+    }
+
+    const previous = rebased[index - 1];
+    const rawPrevious = kept[index - 1].sample;
+    const rawCurrent = entry.sample;
+    const crossedCollapsedBreak =
+      entry.bridgeFromPrevious ||
+      entry.originalIndex - kept[index - 1].originalIndex > 1;
+    const deltaMs = crossedCollapsedBreak
+      ? intervalMs
+      : rawCurrent.timeMs - rawPrevious.timeMs;
+    rebased.push({ ...rawCurrent, timeMs: previous.timeMs + deltaMs });
+    return rebased;
+  }, []);
+}
+
 export function deriveSpeedProfile(samples: readonly MatchedSample[]): SpeedSample[] {
   if (samples.length < 3) return [];
 

@@ -11,6 +11,7 @@ import { usePlaybackEngine } from "@/components/playback/usePlaybackEngine";
 import { routes } from "@/data/routes";
 import type { Corner } from "@/lib/geo/corners";
 import { availableDirections } from "@/lib/gpx/compareCorners";
+import { buildComparisonRides } from "@/lib/gpx/comparison";
 import type { Pass } from "@/lib/gpx/passes";
 import type { LoadedRide } from "@/lib/gpx/session";
 
@@ -23,8 +24,12 @@ export default function Home() {
 
   const directions = useMemo(() => availableDirections(loadedRides), [loadedRides]);
   const activeDirection = direction && directions.includes(direction) ? direction : (directions[0] ?? null);
+  const comparisonRides = useMemo(
+    () => buildComparisonRides(loadedRides, activeDirection),
+    [loadedRides, activeDirection]
+  );
 
-  const playbackEngine = usePlaybackEngine(loadedRides, activeDirection);
+  const playbackEngine = usePlaybackEngine(comparisonRides, activeDirection);
 
   const handleAddRide = (loaded: LoadedRide) => {
     setLoadedRides((prev) => [...prev, loaded]);
@@ -60,7 +65,7 @@ export default function Home() {
         />
       </div>
       <CornerPanel
-        loadedRides={loadedRides}
+        loadedRides={comparisonRides}
         selectedCorner={selectedCorner}
         onSelectCorner={setSelectedCorner}
         directions={directions}
@@ -68,7 +73,7 @@ export default function Home() {
         onChangeDirection={handleChangeDirection}
       />
       <SpeedChartPanel
-        loadedRides={loadedRides}
+        loadedRides={comparisonRides}
         direction={activeDirection}
         selectedCorner={selectedCorner}
         onSelectCorner={setSelectedCorner}
@@ -79,7 +84,7 @@ export default function Home() {
       <RideMap
         selectedRouteId={selectedRouteId}
         onSelectRoute={setSelectedRouteId}
-        loadedRides={loadedRides}
+        loadedRides={comparisonRides}
         selectedCorner={selectedCorner}
         direction={activeDirection}
         playbackEngine={playbackEngine}
