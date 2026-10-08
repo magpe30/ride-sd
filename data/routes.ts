@@ -34,8 +34,7 @@ export const routes: Route[] = [
     markerCoordinate: [-116.8654, 33.313],
     distanceMiles: (palomarMountainLoop as RouteGeometry).properties.distanceMiles,
     cornerCount: countCorners((palomarMountainLoop as RouteGeometry).geometry.coordinates),
-    description:
-      "Climb South Grade Road from Hwy 76, crest near the summit junction, and descend East Grade Road toward Lake Henshaw.",
+    description: "South Grade climb and East Grade descent.",
     line: (palomarMountainLoop as RouteGeometry).geometry,
     directionLabels: {
       forward: "SOUTH GRADE → EAST GRADE",
@@ -50,8 +49,7 @@ export const routes: Route[] = [
     markerCoordinate: [-116.418, 32.87],
     distanceMiles: (sunriseHighway as RouteGeometry).properties.distanceMiles,
     cornerCount: countCorners((sunriseHighway as RouteGeometry).geometry.coordinates),
-    description:
-      "A high-country ridgeline run through Mount Laguna, with long sightlines down into the Anza-Borrego desert.",
+    description: "High-country ridgeline through Mount Laguna.",
     line: (sunriseHighway as RouteGeometry).geometry,
     directionLabels: {
       forward: "I-8 → MT. LAGUNA (UPHILL)",
@@ -67,8 +65,7 @@ export const routes: Route[] = [
     markerCoordinate: [-116.4866, 33.211],
     distanceMiles: (montezumaValleyRoad as RouteGeometry).properties.distanceMiles,
     cornerCount: countCorners((montezumaValleyRoad as RouteGeometry).geometry.coordinates),
-    description:
-      "A steep switchback descent from the Santa Ysabel highlands down into Borrego Springs and the desert floor.",
+    description: "Switchback grade into Borrego Springs.",
     line: (montezumaValleyRoad as RouteGeometry).geometry,
     directionLabels: {
       forward: "TOWARD BORREGO (DOWNHILL)",
@@ -82,8 +79,7 @@ export const routes: Route[] = [
     markerCoordinate: [-116.603, 33.079],
     distanceMiles: (bannerGrade as RouteGeometry).properties.distanceMiles,
     cornerCount: countCorners((bannerGrade as RouteGeometry).geometry.coordinates),
-    description:
-      "Drops out of Julian through tight switchbacks into Banner and Sentenac Canyon toward Scissors Crossing.",
+    description: "Tight switchbacks from Julian into Banner.",
     line: (bannerGrade as RouteGeometry).geometry,
     directionLabels: {
       forward: "TOWARD JULIAN (UPHILL)",

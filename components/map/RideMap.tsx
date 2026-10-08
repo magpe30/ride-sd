@@ -7,11 +7,13 @@ import {
   LngLatBoundsLike,
   Map as MapLibreMap,
   Marker,
+  type PaddingOptions,
   setWorkerUrl,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { routes, type Route } from "@/data/routes";
+import { cornerFocusBearing } from "@/lib/geo/cornerFocus";
 import { detectCorners, type Corner } from "@/lib/geo/corners";
 import {
   bearingDegrees,
@@ -24,8 +26,10 @@ import {
   buildSpeedTrace,
   offsetCoordinatesPerpendicular,
   positionAtArcLength,
+  traceCoordinatesBehind,
 } from "@/lib/gpx/renderTrace";
 import type { LoadedRide } from "@/lib/gpx/session";
+import type { RidePlaybackState } from "@/lib/gpx/playback";
 
 import type { PlaybackEngine } from "../playback/usePlaybackEngine";
 
@@ -35,8 +39,11 @@ const SELECTED_ROUTE_SOURCE = "selected-route";
 const CORNER_HIGHLIGHT_SOURCE = "corner-highlight";
 const CORNER_MARKERS_SOURCE = "corner-markers";
 // Keeps a highlighted corner clear of the fixed side panels (~320px)
-// instead of centering it under them.
-const CORNER_ZOOM_PADDING = { top: 100, bottom: 100, left: 340, right: 340 };
+// and the speed chart instead of centering it underneath them.
+const CORNER_ZOOM_PADDING = { top: 100, bottom: 260, left: 360, right: 360 };
+const CORNER_FOCUS_MAX_ZOOM = 17.4;
+const CORNER_FOCUS_PITCH_DEGREES = 24;
+const CORNER_FOCUS_DURATION_MS = 1200;
 // Scaled by the route's own length rather than fixed, so a 20-mile
 // route doesn't zip by at the same speed as a 13-mile one — clamped so
 // neither a short nor a very long route ends up feeling instant or
@@ -45,9 +52,16 @@ const ROUTE_DRAW_MS_PER_MILE = 320;
 const ROUTE_DRAW_MIN_DURATION_MS = 2800;
 const ROUTE_DRAW_MAX_DURATION_MS = 7000;
 const UPLOADED_PASS_PREFIX = "uploaded-pass-";
+const PLAYBACK_TRAIL_PREFIX = "playback-trail-";
 // Visual separation between rides of the same road, so overlapping
 // traces read as parallel lanes instead of one occluding the others.
 const RIDE_LANE_OFFSET_METERS = 10;
+const PLAYBACK_TRAIL_METERS = 180;
+const CAMERA_LOOKAHEAD_MIN_METERS = 55;
+const CAMERA_LOOKAHEAD_MAX_METERS = 150;
+const CAMERA_LOOKAHEAD_SPEED_SECONDS = 4;
+const CAMERA_LOOKAHEAD_CENTER_WEIGHT = 0.22;
+const CAMERA_VIEWPORT_MARGIN_PX = 24;
 
 function routeDrawDurationMs(distanceMiles: number): number {
   return Math.min(
@@ -264,12 +278,77 @@ function lerpBearingDegrees(a: number, b: number, t: number): number {
   return a + delta * t;
 }
 
+function playbackCameraTarget(
+  trace: RideTraceCache,
+  state: RidePlaybackState
+): { center: [number, number]; bearing?: number; speedMps: number } | null {
+  const traceLike = {
+    coordinates: trace.offsetCoordinates,
+    arcLengthsMeters: trace.arcLengthsMeters,
+    colorStops: [],
+  };
+  const position = positionAtArcLength(traceLike, state.arcLengthMeters);
+  if (!position) return null;
+
+  const directionSign = trace.direction === "forward" ? 1 : -1;
+  const lookAheadMeters = clamp(
+    CAMERA_LOOKAHEAD_MIN_METERS + state.speedMps * CAMERA_LOOKAHEAD_SPEED_SECONDS,
+    CAMERA_LOOKAHEAD_MIN_METERS,
+    CAMERA_LOOKAHEAD_MAX_METERS
+  );
+  const lookAheadPosition =
+    positionAtArcLength(
+      traceLike,
+      state.arcLengthMeters + directionSign * lookAheadMeters
+    ) ?? position;
+  const behindPosition = positionAtArcLength(
+    traceLike,
+    state.arcLengthMeters - directionSign * PLAYBACK_HEADING_LOOKBACK_METERS
+  );
+  const hasLookAhead =
+    lookAheadPosition[0] !== position[0] || lookAheadPosition[1] !== position[1];
+  const hasHeading =
+    behindPosition &&
+    (behindPosition[0] !== position[0] || behindPosition[1] !== position[1]);
+
+  return {
+    center: [
+      lerp(position[0], lookAheadPosition[0], CAMERA_LOOKAHEAD_CENTER_WEIGHT),
+      lerp(position[1], lookAheadPosition[1], CAMERA_LOOKAHEAD_CENTER_WEIGHT),
+    ],
+    bearing: hasLookAhead
+      ? bearingDegrees(position, lookAheadPosition)
+      : hasHeading
+        ? bearingDegrees(behindPosition, position)
+        : undefined,
+    speedMps: state.speedMps,
+  };
+}
+
 type CameraSnapshot = {
   center: [number, number];
   zoom: number;
   pitch: number;
   bearing: number;
+  padding: PaddingOptions;
 };
+
+function replayCameraPadding(map: MapLibreMap): PaddingOptions {
+  const mapBounds = map.getContainer().getBoundingClientRect();
+  const panelBounds = document
+    .querySelector<HTMLElement>(".speed-chart-panel")
+    ?.getBoundingClientRect();
+  const coveredBottom = panelBounds
+    ? Math.max(0, mapBounds.bottom - panelBounds.top)
+    : 0;
+
+  return {
+    top: CAMERA_VIEWPORT_MARGIN_PX,
+    right: CAMERA_VIEWPORT_MARGIN_PX,
+    bottom: coveredBottom + CAMERA_VIEWPORT_MARGIN_PX,
+    left: CAMERA_VIEWPORT_MARGIN_PX,
+  };
+}
 
 export default function RideMap({
   selectedRouteId,
@@ -280,6 +359,7 @@ export default function RideMap({
   playbackEngine,
   cameraMode,
 }: RideMapProps) {
+  const getPlaybackStates = playbackEngine.getStates;
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const selectRouteRef = useRef<(route: Route) => void>(() => {});
@@ -290,6 +370,7 @@ export default function RideMap({
   const renderCornerMarkersRef = useRef<(route: Route | null) => void>(() => {});
   const markersRef = useRef<Map<string, Marker>>(new Map());
   const uploadedLayerIdsRef = useRef<string[]>([]);
+  const uploadedSourceIdsRef = useRef<string[]>([]);
   const riderMarkerRef = useRef<Marker | null>(null);
   const rideTracesRef = useRef<Map<string, RideTraceCache>>(new Map());
   const rideMarkersRef = useRef<Map<string, Marker>>(new Map());
@@ -299,6 +380,9 @@ export default function RideMap({
   // itself depending on it — resubscribing every toggle click would
   // work but this avoids the churn, matching the playingRef pattern.
   const cameraModeRef = useRef<CameraMode>(cameraMode);
+  const directionRef = useRef<Pass["direction"] | null>(direction);
+  const cornerFocusActiveRef = useRef(Boolean(selectedCorner));
+  const cornerCameraSnapshotRef = useRef<CameraSnapshot | null>(null);
   const followActiveRef = useRef(false);
   // Which mode the camera is actually eased into right now — compared
   // against cameraModeRef every frame so a toggle mid-playback is
@@ -420,18 +504,6 @@ export default function RideMap({
           "line-width": 20,
           "line-blur": 12,
           "line-opacity": 0.55,
-        },
-      });
-
-      map.addLayer({
-        id: "corner-highlight-line",
-        type: "line",
-        source: CORNER_HIGHLIGHT_SOURCE,
-        layout: { "line-join": "round", "line-cap": "round" },
-        paint: {
-          "line-color": "#ffffff",
-          "line-width": 3,
-          "line-opacity": 0.95,
         },
       });
 
@@ -576,7 +648,27 @@ export default function RideMap({
           geometry: { type: "LineString", coordinates: [] },
         });
         map.removeFeatureState({ source: CORNER_MARKERS_SOURCE });
+
+        const previousCamera = cornerCameraSnapshotRef.current;
+        cornerCameraSnapshotRef.current = null;
+        if (previousCamera && !playingRef.current) {
+          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          map.easeTo({
+            ...previousCamera,
+            duration: reduceMotion ? 0 : CORNER_FOCUS_DURATION_MS,
+          });
+        }
         return;
+      }
+
+      if (!cornerCameraSnapshotRef.current) {
+        cornerCameraSnapshotRef.current = {
+          center: map.getCenter().toArray() as [number, number],
+          zoom: map.getZoom(),
+          pitch: map.getPitch(),
+          bearing: map.getBearing(),
+          padding: { ...map.getPadding() },
+        };
       }
 
       const cumulative = cumulativeDistancesMeters(route.line.coordinates);
@@ -599,10 +691,20 @@ export default function RideMap({
       map.removeFeatureState({ source: CORNER_MARKERS_SOURCE });
       map.setFeatureState({ source: CORNER_MARKERS_SOURCE, id: corner.index }, { selected: true });
 
+      const focusBearing = cornerFocusBearing(
+        route.line.coordinates,
+        corner,
+        directionRef.current ?? "forward"
+      );
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
       map.fitBounds(boundsFromCoordinates(tuples), {
         padding: CORNER_ZOOM_PADDING,
-        maxZoom: 17,
-        duration: 1000,
+        maxZoom: CORNER_FOCUS_MAX_ZOOM,
+        bearing: focusBearing,
+        pitch: CORNER_FOCUS_PITCH_DEGREES,
+        duration: reduceMotion ? 0 : CORNER_FOCUS_DURATION_MS,
+        linear: true,
       });
     };
 
@@ -644,9 +746,19 @@ export default function RideMap({
 
       for (const id of uploadedLayerIdsRef.current) {
         if (map.getLayer(id)) map.removeLayer(id);
-        if (map.getSource(id)) map.removeSource(id);
       }
       uploadedLayerIdsRef.current = [];
+      for (const id of uploadedSourceIdsRef.current) {
+        if (map.getSource(id)) map.removeSource(id);
+      }
+      uploadedSourceIdsRef.current = [];
+
+      const selectedRouteVisibility = loadedRides.length > 0 ? "none" : "visible";
+      for (const id of ["selected-route-glow", "selected-route-line"]) {
+        if (map.getLayer(id)) {
+          map.setLayoutProperty(id, "visibility", selectedRouteVisibility);
+        }
+      }
 
       if (loadedRides.length === 0) return;
 
@@ -692,14 +804,51 @@ export default function RideMap({
           });
 
           uploadedLayerIdsRef.current.push(id);
+          uploadedSourceIdsRef.current.push(id);
         });
+
+        const trailSourceId = `${PLAYBACK_TRAIL_PREFIX}${loaded.id}`;
+        const trailGlowLayerId = `${trailSourceId}-glow`;
+        const trailLineLayerId = `${trailSourceId}-line`;
+        map.addSource(trailSourceId, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "LineString", coordinates: [] },
+          },
+        });
+        map.addLayer({
+          id: trailGlowLayerId,
+          type: "line",
+          source: trailSourceId,
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: {
+            "line-color": loaded.color,
+            "line-width": 13,
+            "line-blur": 8,
+            "line-opacity": 0.55,
+          },
+        });
+        map.addLayer({
+          id: trailLineLayerId,
+          type: "line",
+          source: trailSourceId,
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: {
+            "line-color": loaded.color,
+            "line-width": 3,
+            "line-opacity": 0.9,
+          },
+        });
+        uploadedLayerIdsRef.current.push(trailGlowLayerId, trailLineLayerId);
+        uploadedSourceIdsRef.current.push(trailSourceId);
       });
 
       // Ride traces just got (re)added on top of everything — bring the
       // corner number labels and highlight back above them so they stay
       // readable instead of getting buried under the thick trace lines.
       if (map.getLayer("corner-highlight-glow")) map.moveLayer("corner-highlight-glow");
-      if (map.getLayer("corner-highlight-line")) map.moveLayer("corner-highlight-line");
       if (map.getLayer("corner-markers-badge")) map.moveLayer("corner-markers-badge");
       if (map.getLayer("corner-markers")) map.moveLayer("corner-markers");
 
@@ -816,7 +965,47 @@ export default function RideMap({
 
   useEffect(() => {
     cameraModeRef.current = cameraMode;
-  }, [cameraMode]);
+    cornerFocusActiveRef.current = false;
+    cornerCameraSnapshotRef.current = null;
+
+    if (playingRef.current) return;
+
+    const map = mapRef.current;
+    const leadState = getPlaybackStates()[0];
+    const leadTrace = leadState ? rideTracesRef.current.get(leadState.rideId) : null;
+    const target = leadState && leadTrace
+      ? playbackCameraTarget(leadTrace, leadState)
+      : null;
+    if (!map || !target) return;
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    map.easeTo({
+      center: target.center,
+      zoom: cameraMode === "chase" ? CHASE_ZOOM : OVERVIEW_ZOOM,
+      pitch: cameraMode === "chase" ? CHASE_PITCH_DEGREES : OVERVIEW_PITCH_DEGREES,
+      bearing:
+        cameraMode === "chase"
+          ? (target.bearing ?? map.getBearing())
+          : OVERVIEW_BEARING_DEGREES,
+      padding: replayCameraPadding(map),
+      duration: reduceMotion ? 0 : CAMERA_TRANSITION_MS,
+    });
+  }, [cameraMode, getPlaybackStates]);
+
+  useEffect(() => {
+    directionRef.current = direction;
+  }, [direction]);
+
+  useEffect(() => {
+    cornerFocusActiveRef.current = Boolean(selectedCorner);
+    if (selectedCorner && followActiveRef.current) {
+      followActiveRef.current = false;
+      followTransitioningRef.current = false;
+      followCameraPositionRef.current = null;
+      followCameraBearingRef.current = null;
+      followCameraZoomRef.current = null;
+    }
+  }, [selectedCorner]);
 
   useEffect(() => {
     playingRef.current = playbackEngine.playing;
@@ -886,6 +1075,24 @@ export default function RideMap({
         const position = positionAtArcLength(traceLike, state.arcLengthMeters);
         if (!position) continue;
 
+        const trailCoordinates = traceCoordinatesBehind(
+          traceLike,
+          state.arcLengthMeters,
+          trace.direction,
+          PLAYBACK_TRAIL_METERS
+        );
+        const trailSource = map.getSource(
+          `${PLAYBACK_TRAIL_PREFIX}${state.rideId}`
+        ) as GeoJSONSource | undefined;
+        trailSource?.setData({
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "LineString",
+            coordinates: trailCoordinates.length >= 2 ? trailCoordinates : [],
+          },
+        });
+
         const loaded = loadedRides.find((r) => r.id === state.rideId);
 
         let marker = markers.get(state.rideId);
@@ -930,15 +1137,11 @@ export default function RideMap({
         }
 
         if (state.rideId === leadRideId) {
-          leadCameraUpdate = {
-            center: position as [number, number],
-            bearing: hasHeading ? bearingDegrees(behindPosition, position) : undefined,
-            speedMps: state.speedMps,
-          };
+          leadCameraUpdate = playbackCameraTarget(trace, state);
         }
       }
 
-      if (playingRef.current && leadCameraUpdate) {
+      if (playingRef.current && leadCameraUpdate && !cornerFocusActiveRef.current) {
         const desiredMode = cameraModeRef.current;
         const needsEngage = !followActiveRef.current || followModeRef.current !== desiredMode;
 
@@ -959,6 +1162,7 @@ export default function RideMap({
               zoom: map.getZoom(),
               pitch: map.getPitch(),
               bearing: map.getBearing(),
+              padding: { ...map.getPadding() },
             };
           }
 
@@ -981,6 +1185,7 @@ export default function RideMap({
             zoom: targetZoom,
             pitch: targetPitch,
             bearing: targetBearing,
+            padding: replayCameraPadding(map),
             duration: CAMERA_TRANSITION_MS,
           });
           map.once("moveend", () => {

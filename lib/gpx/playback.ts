@@ -12,6 +12,17 @@ export type RidePlaybackState = {
   finished: boolean;
 };
 
+export function ridePlaybackProgress(
+  pass: Pass,
+  state: Pick<RidePlaybackState, "arcLengthMeters" | "finished">
+): number {
+  if (state.finished) return 1;
+  const start = pass.samples[0]?.arcLengthMeters;
+  const end = pass.samples.at(-1)?.arcLengthMeters;
+  if (start === undefined || end === undefined || start === end) return 0;
+  return Math.max(0, Math.min(1, (state.arcLengthMeters - start) / (end - start)));
+}
+
 function stateAtRecordedTime(
   rideId: string,
   speedProfile: readonly SpeedSample[],

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { advanceRidePlayback, initialRidePlaybackState } from "@/lib/gpx/playback";
+import {
+  advanceRidePlayback,
+  initialRidePlaybackState,
+  ridePlaybackProgress,
+} from "@/lib/gpx/playback";
 
 import { makePass } from "./fixtures";
 
@@ -22,5 +26,23 @@ describe("recorded-time playback", () => {
 
     expect(halfway.arcLengthMeters).toBe(200);
     expect(halfway.finished).toBe(false);
+  });
+
+  it("reports route completion in both travel directions", () => {
+    const forward = makePass({ startTimeMs: 0 });
+    const reverse = makePass({ startTimeMs: 0, direction: "reverse" });
+
+    expect(
+      ridePlaybackProgress(forward, {
+        arcLengthMeters: 100,
+        finished: false,
+      })
+    ).toBeCloseTo(0.25);
+    expect(
+      ridePlaybackProgress(reverse, {
+        arcLengthMeters: 300,
+        finished: false,
+      })
+    ).toBeCloseTo(0.25);
   });
 });

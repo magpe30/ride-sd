@@ -5,6 +5,10 @@ import { useMemo, useState, type CSSProperties } from "react";
 import { detectCorners, type Corner } from "@/lib/geo/corners";
 import { buildCornerComparison } from "@/lib/gpx/compareCorners";
 import {
+  comparisonCornerSummary,
+  singleCornerSummary,
+} from "@/lib/gpx/cornerSummary";
+import {
   displayTurnDirection,
   type ComparisonRide,
   type ComparisonSlot,
@@ -125,6 +129,9 @@ export default function CornerPanel({
   const selectedRow = selectedCorner
     ? rows.find((row) => row.corner.index === selectedCorner.index)
     : undefined;
+  const selectedBaseline = selectedRow?.entries.find(
+    (entry) => entry.rideId === loadedRides[0].id
+  )?.metrics;
 
   const renderComparisonMetrics = (
     metrics: MetricDefinition[],
@@ -262,6 +269,32 @@ export default function CornerPanel({
                         selectedRow.corner.startArcLengthMeters) /
                       1000
                     ).toFixed(1)}km`}
+              </div>
+
+              <div className="corner-performance-summary" aria-label="Corner performance summary">
+                <span className="corner-performance-summary-label">SUMMARY</span>
+                {comparisonMode ? (
+                  loadedRides.slice(1).map((ride) => {
+                    const current = selectedRow.entries.find(
+                      (entry) => entry.rideId === ride.id
+                    )?.metrics;
+                    return (
+                      <p key={ride.id}>
+                        <i style={{ background: ride.color }} />
+                        {comparisonCornerSummary(
+                          ride.comparison.slot,
+                          current,
+                          selectedBaseline
+                        )}
+                      </p>
+                    );
+                  })
+                ) : selectedBaseline ? (
+                  <p>
+                    <i style={{ background: loadedRides[0].color }} />
+                    {singleCornerSummary(selectedBaseline)}
+                  </p>
+                ) : null}
               </div>
 
               {comparisonMode ? (

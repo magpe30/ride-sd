@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { detectCorners, type Corner } from "@/lib/geo/corners";
 import type { CameraMode } from "@/components/map/RideMap";
 import type { Pass } from "@/lib/gpx/passes";
+import { ridePlaybackProgress } from "@/lib/gpx/playback";
 import { buildSpeedChartSeries, mphAtMiles } from "@/lib/gpx/speedChart";
 import type { LoadedRide } from "@/lib/gpx/session";
 
@@ -24,8 +25,8 @@ type SpeedChartPanelProps = {
 const METERS_PER_MILE = 1609.344;
 const MPS_TO_MPH = 2.23694;
 const CHART_WIDTH = 800;
-const CHART_HEIGHT = 190;
-const PADDING = { top: 12, right: 12, bottom: 22, left: 32 };
+const CHART_HEIGHT = 125;
+const PADDING = { top: 6, right: 12, bottom: 16, left: 32 };
 const PLOT_WIDTH = CHART_WIDTH - PADDING.left - PADDING.right;
 const PLOT_HEIGHT = CHART_HEIGHT - PADDING.top - PADDING.bottom;
 
@@ -44,6 +45,9 @@ export default function SpeedChartPanel({
   const overlayPathRefs = useRef<Map<string, SVGPathElement>>(new Map());
   const overlayDotRefs = useRef<Map<string, SVGCircleElement>>(new Map());
   const legendSpeedRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
+  const progressRef = useRef<HTMLDivElement>(null);
+  const progressFillRef = useRef<HTMLSpanElement>(null);
+  const progressValueRef = useRef<HTMLOutputElement>(null);
 
   const activeRoute = loadedRides[0]?.ride.route ?? null;
 
@@ -125,6 +129,21 @@ export default function SpeedChartPanel({
         if (legendSpeedEl) {
           legendSpeedEl.textContent = `${Math.round(state.speedMps * MPS_TO_MPH)} mph`;
         }
+      }
+
+      const leadRide = loadedRides[0];
+      const leadState = states.find((state) => state.rideId === leadRide?.id);
+      const leadPass = leadRide?.ride.passes.find((pass) => pass.direction === direction);
+      if (leadState && leadPass) {
+        const progress = ridePlaybackProgress(leadPass, leadState);
+        const percentage = Math.round(progress * 100);
+        if (progressFillRef.current) {
+          progressFillRef.current.style.width = `${percentage}%`;
+        }
+        if (progressValueRef.current) {
+          progressValueRef.current.value = `${percentage}%`;
+        }
+        progressRef.current?.setAttribute("aria-valuenow", String(percentage));
       }
     });
     return unsubscribe;
@@ -289,6 +308,23 @@ export default function SpeedChartPanel({
 
       <div className={`panel-fold-region${collapsed ? " panel-fold-region--collapsed" : ""}`}>
         <div className="panel-fold-region-inner">
+          <div
+            ref={progressRef}
+            className="speed-chart-progress"
+            role="progressbar"
+            aria-label="Baseline route completion"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={0}
+          >
+            <span className="speed-chart-progress-label">ROUTE</span>
+            <span className="speed-chart-progress-track">
+              <span ref={progressFillRef} className="speed-chart-progress-fill" />
+            </span>
+            <output ref={progressValueRef} className="speed-chart-progress-value">
+              0%
+            </output>
+          </div>
           <svg
             ref={svgRef}
             className="speed-chart-svg"
@@ -420,7 +456,7 @@ export default function SpeedChartPanel({
               </>
             ) : (
               <span className="speed-chart-readout-position">
-                Hover to read speed · click a point to inspect that corner
+                Hover for speed · click to inspect a corner
               </span>
             )}
           </div>

@@ -24,7 +24,7 @@ export default function RoutePanel({
       <div className="route-panel-header">
         <span className="route-panel-header-main">ROUTES</span>
         <div className="route-panel-header-right">
-          <span className="route-panel-header-count">{routes.length} LOADED</span>
+          <span className="route-panel-header-count">{routes.length} ROUTES</span>
           <FoldToggle
             collapsed={collapsed}
             onToggle={() => setCollapsed((c) => !c)}
@@ -49,9 +49,6 @@ export default function RoutePanel({
                     <span className="route-card-distance">{route.distanceMiles} MI</span>
                   </div>
                   <p className="route-card-description">{route.description}</p>
-                  <div className="route-card-stats">
-                    <span className="route-card-stat">{route.cornerCount} CORNERS</span>
-                  </div>
                 </button>
               );
             })}

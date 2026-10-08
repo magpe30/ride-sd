@@ -166,6 +166,37 @@ export function positionAtArcLength(
     : coordinates[coordinates.length - 1];
 }
 
+export function traceCoordinatesBehind(
+  trace: Pick<SpeedTrace, "coordinates" | "arcLengthsMeters">,
+  currentArcLengthMeters: number,
+  direction: "forward" | "reverse",
+  trailLengthMeters: number
+): [number, number][] {
+  const directionSign = direction === "forward" ? 1 : -1;
+  const startArcLengthMeters = currentArcLengthMeters - directionSign * trailLengthMeters;
+  const start = positionAtArcLength(
+    { ...trace, colorStops: [] },
+    startArcLengthMeters
+  );
+  const end = positionAtArcLength({ ...trace, colorStops: [] }, currentArcLengthMeters);
+  if (!start || !end) return [];
+
+  const low = Math.min(startArcLengthMeters, currentArcLengthMeters);
+  const high = Math.max(startArcLengthMeters, currentArcLengthMeters);
+  const middle = trace.coordinates.filter((_, index) => {
+    const arc = trace.arcLengthsMeters[index];
+    return arc > low && arc < high;
+  });
+  const coordinates = [start, ...middle, end];
+
+  return coordinates.filter(
+    (coordinate, index) =>
+      index === 0 ||
+      coordinate[0] !== coordinates[index - 1][0] ||
+      coordinate[1] !== coordinates[index - 1][1]
+  );
+}
+
 const METERS_PER_DEGREE_LAT = 111320;
 
 // Shifts a line sideways by a fixed distance, perpendicular to its local

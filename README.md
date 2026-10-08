@@ -49,7 +49,11 @@ pipeline for map-matching, smoothing, and analyzing rider GPX traces.
   keeping the original single-pass view when only one pass is available.
 - Replay follows each pass's riding timestamps while excluding confirmed
   stationary recording breaks, so a pre-ride stop does not freeze the replay
-  or count toward the speed profile.
+  or count toward the speed profile. Rider markers interpolate between GPS
+  samples with short glow trails, an anticipatory follow camera, and route
+  completion progress.
+- Selecting a corner adds a concise performance summary for entry, minimum,
+  and exit speed, with later passes compared against baseline A.
 - GPX files never leave your browser and are never written to the
   repo — everything runs client-side.
 

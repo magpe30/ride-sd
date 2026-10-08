@@ -57,6 +57,9 @@ describe("CornerPanel modes", () => {
     );
 
     expect(screen.getByLabelText("Comparison order").textContent).toContain("CLATEST");
+    expect(screen.getByLabelText("Corner performance summary").textContent).toContain(
+      "C was 4.5 mph faster on entry"
+    );
     expect(screen.getAllByText("+2.2").length).toBeGreaterThan(0);
     expect(screen.getAllByText("+4.5").length).toBeGreaterThan(0);
   });
