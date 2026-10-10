@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import {
   type ExpressionSpecification,
+  type FilterSpecification,
   GeoJSONSource,
   LngLatBoundsLike,
   Map as MapLibreMap,
@@ -62,6 +63,8 @@ const CAMERA_LOOKAHEAD_MAX_METERS = 150;
 const CAMERA_LOOKAHEAD_SPEED_SECONDS = 4;
 const CAMERA_LOOKAHEAD_CENTER_WEIGHT = 0.22;
 const CAMERA_VIEWPORT_MARGIN_PX = 24;
+const CORNER_REPLAY_WINDOW_METERS = 450;
+const CORNER_FILTER_BUCKET_METERS = 100;
 
 function routeDrawDurationMs(distanceMiles: number): number {
   return Math.min(
@@ -350,6 +353,37 @@ function replayCameraPadding(map: MapLibreMap): PaddingOptions {
   };
 }
 
+function setCornerMarkerWindow(
+  map: MapLibreMap,
+  centerArcLengthMeters: number | null,
+  selectedCornerIndex: number | null
+) {
+  const filter: FilterSpecification | null =
+    centerArcLengthMeters === null
+      ? null
+      : [
+          "any",
+          [
+            "all",
+            [
+              ">=",
+              ["get", "arcLengthMeters"],
+              centerArcLengthMeters - CORNER_REPLAY_WINDOW_METERS,
+            ],
+            [
+              "<=",
+              ["get", "arcLengthMeters"],
+              centerArcLengthMeters + CORNER_REPLAY_WINDOW_METERS,
+            ],
+          ],
+          ["==", ["get", "cornerIndex"], selectedCornerIndex ?? -1],
+        ];
+
+  for (const layerId of ["corner-markers-badge", "corner-markers"]) {
+    if (map.getLayer(layerId)) map.setFilter(layerId, filter);
+  }
+}
+
 export default function RideMap({
   selectedRouteId,
   onSelectRoute,
@@ -382,6 +416,8 @@ export default function RideMap({
   const cameraModeRef = useRef<CameraMode>(cameraMode);
   const directionRef = useRef<Pass["direction"] | null>(direction);
   const cornerFocusActiveRef = useRef(Boolean(selectedCorner));
+  const selectedCornerIndexRef = useRef<number | null>(selectedCorner?.index ?? null);
+  const cornerFilterKeyRef = useRef<string | null>(null);
   const cornerCameraSnapshotRef = useRef<CameraSnapshot | null>(null);
   const followActiveRef = useRef(false);
   // Which mode the camera is actually eased into right now — compared
@@ -731,7 +767,11 @@ export default function RideMap({
           return {
             type: "Feature",
             id: corner.index,
-            properties: { label: String(corner.index) },
+            properties: {
+              label: String(corner.index),
+              cornerIndex: corner.index,
+              arcLengthMeters: corner.apexArcLengthMeters,
+            },
             geometry: { type: "Point", coordinates: [lon, lat] },
           };
         }),
@@ -998,6 +1038,7 @@ export default function RideMap({
 
   useEffect(() => {
     cornerFocusActiveRef.current = Boolean(selectedCorner);
+    selectedCornerIndexRef.current = selectedCorner?.index ?? null;
     if (selectedCorner && followActiveRef.current) {
       followActiveRef.current = false;
       followTransitioningRef.current = false;
@@ -1028,6 +1069,12 @@ export default function RideMap({
         mapRef.current?.easeTo({ ...previous, duration: CAMERA_TRANSITION_MS });
       }
     }
+
+    if (!playbackEngine.playing) {
+      cornerFilterKeyRef.current = null;
+      const map = mapRef.current;
+      if (map) setCornerMarkerWindow(map, null, selectedCornerIndexRef.current);
+    }
   }, [playbackEngine.playing]);
 
   // Drives one marker (plus a floating live-speed label) per loaded
@@ -1045,6 +1092,22 @@ export default function RideMap({
 
     const unsubscribe = playbackEngine.subscribe((states) => {
       const activeIds = new Set(states.map((s) => s.rideId));
+      const leadState = states.find((state) => state.rideId === leadRideId);
+
+      if (playingRef.current && leadState) {
+        const bucket = Math.floor(
+          leadState.arcLengthMeters / CORNER_FILTER_BUCKET_METERS
+        );
+        const filterKey = `${bucket}:${selectedCornerIndexRef.current ?? "none"}`;
+        if (cornerFilterKeyRef.current !== filterKey) {
+          cornerFilterKeyRef.current = filterKey;
+          setCornerMarkerWindow(
+            map,
+            leadState.arcLengthMeters,
+            selectedCornerIndexRef.current
+          );
+        }
+      }
 
       markers.forEach((marker, id) => {
         if (!activeIds.has(id)) {

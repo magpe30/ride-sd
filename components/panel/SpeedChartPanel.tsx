@@ -365,18 +365,27 @@ export default function SpeedChartPanel({
               </g>
             ))}
 
-            {cornerRanges.map(({ corner, startMiles }) => (
-              <line
-                key={corner.index}
-                x1={xScale(startMiles)}
-                x2={xScale(startMiles)}
-                y1={PADDING.top}
-                y2={CHART_HEIGHT - PADDING.bottom}
-                className={`speed-chart-corner-tick${
-                  selectedCorner?.index === corner.index ? " speed-chart-corner-tick--selected" : ""
-                }`}
-              />
-            ))}
+            {cornerRanges.map(({ corner, startMiles }) => {
+              const selected = selectedCorner?.index === corner.index;
+              const hovered = hoveredCorner?.corner.index === corner.index;
+              const emphasized = selected || hovered;
+              return (
+                <line
+                  key={corner.index}
+                  x1={xScale(startMiles)}
+                  x2={xScale(startMiles)}
+                  y1={
+                    emphasized
+                      ? PADDING.top
+                      : CHART_HEIGHT - PADDING.bottom - 6
+                  }
+                  y2={CHART_HEIGHT - PADDING.bottom}
+                  className={`speed-chart-corner-tick${
+                    selected ? " speed-chart-corner-tick--selected" : ""
+                  }${hovered ? " speed-chart-corner-tick--hovered" : ""}`}
+                />
+              );
+            })}
 
             {series.map((s) => (
               <path

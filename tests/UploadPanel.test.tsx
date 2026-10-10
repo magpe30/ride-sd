@@ -8,9 +8,13 @@ import type { LoadedRide } from "@/lib/gpx/session";
 
 import { makePass, makeRide } from "./fixtures";
 
-vi.mock("@/lib/gpx/parse", () => ({
-  parseGpx: vi.fn(() => []),
-}));
+vi.mock("@/lib/gpx/parse", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/gpx/parse")>();
+  return {
+    ...original,
+    parseGpx: vi.fn(() => []),
+  };
+});
 
 vi.mock("@/lib/gpx/analyzeRide", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/gpx/analyzeRide")>();

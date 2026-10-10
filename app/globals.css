@@ -974,13 +974,18 @@ body {
 }
 
 .speed-chart-corner-tick {
-  stroke: rgba(124, 58, 255, 0.35);
+  stroke: rgba(124, 58, 255, 0.65);
   stroke-width: 1;
 }
 
 .speed-chart-corner-tick--selected {
   stroke: var(--neon-magenta);
   stroke-width: 2;
+}
+
+.speed-chart-corner-tick--hovered {
+  stroke: var(--neon-cyan);
+  stroke-width: 1.5;
 }
 
 .speed-chart-line {

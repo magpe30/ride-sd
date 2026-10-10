@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { routes } from "@/data/routes";
 import { analyzeRide, type AnalyzedRide, type RideAnalysisResult } from "@/lib/gpx/analyzeRide";
 import { validateComparisonRoute } from "@/lib/gpx/comparison";
-import { parseGpx } from "@/lib/gpx/parse";
+import { parseGpx, validateGpxFile } from "@/lib/gpx/parse";
 import {
   createLoadedRide,
   deriveRideLabel,
@@ -62,6 +62,7 @@ export default function UploadPanel({ loadedRides, onAddRide, onRemoveRide }: Up
     setMessage(null);
 
     try {
+      validateGpxFile(file);
       const text = await file.text();
       const track = parseGpx(text);
       const result = analyzeRide(track, routes);
