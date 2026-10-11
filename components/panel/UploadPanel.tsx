@@ -51,42 +51,72 @@ export default function UploadPanel({ loadedRides, onAddRide, onRemoveRide }: Up
     onRemoveRide(id);
   };
 
-  const handleFile = async (file: File) => {
+  const handleFiles = async (files: readonly File[]) => {
     if (atCapacity) {
       setStatus("error");
       setMessage(`Already comparing ${MAX_LOADED_RIDES} rides — remove one to add another.`);
       return;
     }
 
+    const availableSlots = MAX_LOADED_RIDES - loadedRides.length;
+    if (files.length > availableSlots) {
+      setStatus("error");
+      setMessage(
+        `Choose up to ${availableSlots} more ${availableSlots === 1 ? "ride" : "rides"}. The comparison supports ${MAX_LOADED_RIDES} total.`
+      );
+      return;
+    }
+
     setStatus("processing");
     setMessage(null);
 
-    try {
-      validateGpxFile(file);
-      const text = await file.text();
-      const track = parseGpx(text);
-      const result = analyzeRide(track, routes);
+    const pendingRides = [...loadedRides];
+    const addedRides: LoadedRide[] = [];
+    const errors: string[] = [];
 
-      if (!result.ok) {
-        setStatus("error");
-        setMessage(analysisErrorMessage(result));
-        return;
+    for (const file of files) {
+      try {
+        validateGpxFile(file);
+        const text = await file.text();
+        const track = parseGpx(text);
+        const result = analyzeRide(track, routes);
+
+        if (!result.ok) throw new Error(analysisErrorMessage(result));
+
+        const analyzed = result.ride;
+        const routeValidation = validateComparisonRoute(analyzed, pendingRides);
+        if (!routeValidation.ok) throw new Error(routeValidation.message);
+
+        const loaded = createLoadedRide(
+          analyzed,
+          pendingRides,
+          deriveRideLabel(file.name)
+        );
+        pendingRides.push(loaded);
+        addedRides.push(loaded);
+      } catch (error) {
+        errors.push(
+          `${file.name}: ${error instanceof Error ? error.message : "Failed to parse GPX file."}`
+        );
       }
+    }
 
-      const analyzed = result.ride;
-      const routeValidation = validateComparisonRoute(analyzed, loadedRides);
-      if (!routeValidation.ok) {
-        setStatus("error");
-        setMessage(routeValidation.message);
-        return;
-      }
+    for (const ride of addedRides) onAddRide(ride);
 
-      setStatus("done");
-      setMessage(`Added — ${summarizeRide(analyzed)}`);
-      onAddRide(createLoadedRide(analyzed, loadedRides, deriveRideLabel(file.name)));
-    } catch (error) {
+    if (errors.length > 0) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Failed to parse GPX file.");
+      const addedPrefix = addedRides.length > 0
+        ? `Added ${addedRides.length} of ${files.length}. `
+        : "";
+      setMessage(`${addedPrefix}${errors.join(" ")}`);
+      return;
+    }
+
+    setStatus("done");
+    if (addedRides.length === 1) {
+      setMessage(`Added — ${summarizeRide(addedRides[0].ride)}`);
+    } else {
+      setMessage(`Added ${addedRides.length} rides — ready to compare.`);
     }
   };
 
@@ -96,10 +126,11 @@ export default function UploadPanel({ loadedRides, onAddRide, onRemoveRide }: Up
         ref={inputRef}
         type="file"
         accept=".gpx"
+        multiple
         className="upload-panel-input"
         onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) handleFile(file);
+          const files = Array.from(event.target.files ?? []);
+          if (files.length > 0) handleFiles(files);
           event.target.value = "";
         }}
       />
