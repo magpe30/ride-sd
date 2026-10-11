@@ -19,6 +19,10 @@ export type CornerMetrics = {
   exitSpeedMps: number;
   speedLostMps: number;
   speedGainedMps: number;
+  minimumSpeedArcLengthMeters: number;
+  /** Travel-direction progress through the corner: 0 = entry, 1 = exit. */
+  minimumSpeedProgress: number;
+  speedRangeMps: number;
   /**
    * Steady-state estimate from apex speed and the corner's local apex
    * radius — the same approximation track-telemetry tools use without
@@ -73,6 +77,9 @@ export function computeCornerMetrics(
   const minSpeedMps = Math.min(...speedsInCorner);
   const maxSpeedMps = Math.max(...speedsInCorner);
   const medianSpeedMps = median(speedsInCorner);
+  const minimumSample = inCorner.reduce((minimum, sample) =>
+    sample.speedMps < minimum.speedMps ? sample : minimum
+  );
 
   // Which boundary is "entry" depends on which way this pass travels
   // the corner — a reverse pass meets the corner's end first.
@@ -90,6 +97,17 @@ export function computeCornerMetrics(
   const apexSpeedMps = speedAtArcLengthMeters(sortedByArc, corner.apexArcLengthMeters);
 
   const cornerLengthMeters = corner.endArcLengthMeters - corner.startArcLengthMeters;
+  const minimumSpeedProgress = Math.max(
+    0,
+    Math.min(
+      1,
+      passDirection === "forward"
+        ? (minimumSample.arcLengthMeters - corner.startArcLengthMeters) /
+            cornerLengthMeters
+        : (corner.endArcLengthMeters - minimumSample.arcLengthMeters) /
+            cornerLengthMeters
+    )
+  );
 
   // Prefer the apex's local radius (tightest point of the corner) over
   // the whole-corner average — a corner tapers in toward its apex, so
@@ -120,6 +138,9 @@ export function computeCornerMetrics(
     exitSpeedMps,
     speedLostMps: approachSpeedMps - minSpeedMps,
     speedGainedMps: exitSpeedMps - minSpeedMps,
+    minimumSpeedArcLengthMeters: minimumSample.arcLengthMeters,
+    minimumSpeedProgress,
+    speedRangeMps: maxSpeedMps - minSpeedMps,
     estimatedLeanAngleDegrees,
   };
 }

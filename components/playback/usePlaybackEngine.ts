@@ -12,10 +12,12 @@
 // 60 times a second.
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { Corner } from "@/lib/geo/corners";
 import type { Pass } from "@/lib/gpx/passes";
 import {
   advanceRidePlayback,
   initialRidePlaybackState,
+  ridePlaybackStateAtArcLength,
   type RidePlaybackState,
 } from "@/lib/gpx/playback";
 import type { LoadedRide } from "@/lib/gpx/session";
@@ -28,7 +30,9 @@ export type PlaybackEngine = {
   playing: boolean;
   finishedRideIds: ReadonlySet<string>;
   allFinished: boolean;
+  mode: "route" | "corner";
   togglePlay: () => void;
+  playCorner: (corner: Corner) => void;
   reset: () => void;
   subscribe: (listener: PlaybackFrameListener) => () => void;
   getStates: () => readonly RidePlaybackState[];
@@ -46,6 +50,9 @@ const PLAYBACK_SPEED_MULTIPLIER = 10;
 // tab doesn't feed the sim one huge catch-up step (which would look
 // like the marker teleporting instead of animating).
 const MAX_FRAME_DT_SECONDS = 0.25;
+const CORNER_REPLAY_APPROACH_METERS = 90;
+const CORNER_REPLAY_EXIT_METERS = 70;
+const CORNER_REPLAY_DURATION_SECONDS = 7;
 
 type PlaybackEntry = { pass: Pass; speedProfile: SpeedSample[] };
 
@@ -81,6 +88,7 @@ export function usePlaybackEngine(
   direction: Pass["direction"] | null
 ): PlaybackEngine {
   const [playing, setPlaying] = useState(false);
+  const [mode, setMode] = useState<"route" | "corner">("route");
   const [finishedRideIds, setFinishedRideIds] = useState<ReadonlySet<string>>(new Set());
 
   const entriesRef = useRef<Map<string, PlaybackEntry>>(new Map());
@@ -88,6 +96,12 @@ export function usePlaybackEngine(
   const listenersRef = useRef<Set<PlaybackFrameListener>>(new Set());
   const rafRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
+  const modeRef = useRef<"route" | "corner">("route");
+  const cornerReplayRef = useRef<{
+    startArcLengthMeters: number;
+    endArcLengthMeters: number;
+    elapsedSeconds: number;
+  } | null>(null);
 
   const activeRideIds = playableRideIds(loadedRides, direction);
   const hasPlayableRides = activeRideIds.length > 0;
@@ -137,6 +151,9 @@ export function usePlaybackEngine(
     lastFrameTimeRef.current = null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlaying(false);
+    modeRef.current = "route";
+    setMode("route");
+    cornerReplayRef.current = null;
     setFinishedRideIds(new Set());
     resetToStart(entries);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,6 +170,42 @@ export function usePlaybackEngine(
       const rawDtSeconds = (now - lastFrameTimeRef.current) / 1000;
       lastFrameTimeRef.current = now;
       const dtSeconds = Math.min(MAX_FRAME_DT_SECONDS, rawDtSeconds) * PLAYBACK_SPEED_MULTIPLIER;
+
+      const cornerReplay = cornerReplayRef.current;
+      if (modeRef.current === "corner" && cornerReplay) {
+        // Corner stories use a common progress clock. Every ghost reaches
+        // entry, apex region, and exit together, while its label still shows
+        // the recorded speed at that point.
+        const visualDtSeconds = Math.min(MAX_FRAME_DT_SECONDS, rawDtSeconds);
+        cornerReplay.elapsedSeconds += visualDtSeconds;
+        const progress = Math.min(
+          1,
+          cornerReplay.elapsedSeconds / CORNER_REPLAY_DURATION_SECONDS
+        );
+        const arcLengthMeters =
+          cornerReplay.startArcLengthMeters +
+          (cornerReplay.endArcLengthMeters - cornerReplay.startArcLengthMeters) * progress;
+        const next = statesRef.current.map((state) => {
+          const entry = entriesRef.current.get(state.rideId);
+          return entry
+            ? ridePlaybackStateAtArcLength(
+                state.rideId,
+                entry.speedProfile,
+                arcLengthMeters,
+                progress >= 1
+              )
+            : state;
+        });
+        statesRef.current = next;
+        notify(next);
+        if (progress >= 1) {
+          setFinishedRideIds(new Set(next.map((state) => state.rideId)));
+          setPlaying(false);
+          return;
+        }
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
 
       const newlyFinished: string[] = [];
       const next = statesRef.current.map((state) => {
@@ -196,18 +249,72 @@ export function usePlaybackEngine(
 
   const togglePlay = useCallback(() => {
     setPlaying((prev) => {
+      if (prev) return false;
+      if (modeRef.current === "corner") {
+        modeRef.current = "route";
+        setMode("route");
+        cornerReplayRef.current = null;
+        resetToStart(entriesRef.current);
+        setFinishedRideIds(new Set());
+        return true;
+      }
       const startingFresh =
-        !prev && statesRef.current.length > 0 && statesRef.current.every((s) => s.finished);
+        statesRef.current.length > 0 && statesRef.current.every((s) => s.finished);
       if (startingFresh) {
         resetToStart(entriesRef.current);
         setFinishedRideIds(new Set());
       }
-      return !prev;
+      return true;
     });
   }, [resetToStart]);
 
+  const playCorner = useCallback(
+    (corner: Corner) => {
+      const activeDirection = direction;
+      if (!activeDirection || entriesRef.current.size === 0) return;
+      const directionSign = activeDirection === "forward" ? 1 : -1;
+      const entryArc =
+        activeDirection === "forward"
+          ? corner.startArcLengthMeters
+          : corner.endArcLengthMeters;
+      const exitArc =
+        activeDirection === "forward"
+          ? corner.endArcLengthMeters
+          : corner.startArcLengthMeters;
+      const startArcLengthMeters =
+        entryArc - directionSign * CORNER_REPLAY_APPROACH_METERS;
+      const endArcLengthMeters =
+        exitArc + directionSign * CORNER_REPLAY_EXIT_METERS;
+
+      cornerReplayRef.current = {
+        startArcLengthMeters,
+        endArcLengthMeters,
+        elapsedSeconds: 0,
+      };
+      modeRef.current = "corner";
+      setMode("corner");
+      setFinishedRideIds(new Set());
+      lastFrameTimeRef.current = null;
+
+      const initial = [...entriesRef.current.entries()].map(([rideId, entry]) =>
+        ridePlaybackStateAtArcLength(
+          rideId,
+          entry.speedProfile,
+          startArcLengthMeters
+        )
+      );
+      statesRef.current = initial;
+      notify(initial);
+      setPlaying(true);
+    },
+    [direction, notify]
+  );
+
   const reset = useCallback(() => {
     setPlaying(false);
+    modeRef.current = "route";
+    setMode("route");
+    cornerReplayRef.current = null;
     setFinishedRideIds(new Set());
     resetToStart(entriesRef.current);
   }, [resetToStart]);
@@ -227,7 +334,9 @@ export function usePlaybackEngine(
     playing,
     finishedRideIds,
     allFinished,
+    mode,
     togglePlay,
+    playCorner,
     reset,
     subscribe,
     getStates,

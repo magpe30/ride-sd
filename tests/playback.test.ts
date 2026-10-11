@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceRidePlayback,
   initialRidePlaybackState,
+  ridePlaybackStateAtArcLength,
   ridePlaybackProgress,
 } from "@/lib/gpx/playback";
 
@@ -44,5 +45,16 @@ describe("recorded-time playback", () => {
         finished: false,
       })
     ).toBeCloseTo(0.25);
+  });
+
+  it("interpolates speed for synchronized corner replay by route position", () => {
+    const pass = makePass({ startTimeMs: 0, minSpeedMps: 10 });
+    pass.speedProfile[1].speedMps = 12;
+
+    const state = ridePlaybackStateAtArcLength("ride", pass.speedProfile, 50);
+
+    expect(state.arcLengthMeters).toBe(50);
+    expect(state.speedMps).toBe(11);
+    expect(state.finished).toBe(false);
   });
 });

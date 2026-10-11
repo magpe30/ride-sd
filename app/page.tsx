@@ -71,6 +71,7 @@ export default function Home() {
         directions={directions}
         direction={activeDirection}
         onChangeDirection={handleChangeDirection}
+        playbackEngine={playbackEngine}
       />
       <SpeedChartPanel
         loadedRides={comparisonRides}

@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { detectCorners, type Corner } from "@/lib/geo/corners";
 import { buildCornerComparison } from "@/lib/gpx/compareCorners";
 import {
-  comparisonCornerSummary,
-  singleCornerSummary,
-} from "@/lib/gpx/cornerSummary";
+  buildCornerCoachingInsights,
+  minimumSpeedLocation,
+} from "@/lib/gpx/cornerCoaching";
 import {
   displayTurnDirection,
   type ComparisonRide,
@@ -15,6 +15,7 @@ import {
 } from "@/lib/gpx/comparison";
 import type { CornerMetrics } from "@/lib/gpx/cornerMetrics";
 import type { Pass } from "@/lib/gpx/passes";
+import type { PlaybackEngine } from "@/components/playback/usePlaybackEngine";
 
 import FoldToggle from "./FoldToggle";
 
@@ -25,6 +26,7 @@ type CornerPanelProps = {
   directions: Pass["direction"][];
   direction: Pass["direction"] | null;
   onChangeDirection: (direction: Pass["direction"]) => void;
+  playbackEngine: PlaybackEngine;
 };
 
 type SpeedMetricKey =
@@ -106,8 +108,11 @@ export default function CornerPanel({
   directions,
   direction,
   onChangeDirection,
+  playbackEngine,
 }: CornerPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [detailTab, setDetailTab] = useState<"coaching" | "metrics">("coaching");
+  const contentRef = useRef<HTMLDivElement>(null);
   const activeRoute = loadedRides[0]?.ride.route ?? null;
 
   const corners = useMemo(
@@ -123,15 +128,26 @@ export default function CornerPanel({
     return activeDirection === "reverse" ? comparisonRows.reverse() : comparisonRows;
   }, [loadedRides, corners, activeDirection]);
 
+  useLayoutEffect(() => {
+    if (!selectedCorner || !contentRef.current) return;
+    contentRef.current.scrollTop = 0;
+  }, [selectedCorner]);
+
   if (!activeRoute || loadedRides.length === 0) return null;
 
   const comparisonMode = loadedRides.length > 1;
   const selectedRow = selectedCorner
     ? rows.find((row) => row.corner.index === selectedCorner.index)
     : undefined;
-  const selectedBaseline = selectedRow?.entries.find(
-    (entry) => entry.rideId === loadedRides[0].id
-  )?.metrics;
+  const selectedMetrics = selectedRow
+    ? loadedRides.map(
+        (ride) =>
+          selectedRow.entries.find((entry) => entry.rideId === ride.id)?.metrics
+      )
+    : [];
+  const coachingInsights = selectedRow
+    ? buildCornerCoachingInsights(selectedMetrics)
+    : [];
 
   const renderComparisonMetrics = (
     metrics: MetricDefinition[],
@@ -201,7 +217,7 @@ export default function CornerPanel({
       </div>
 
       <div className={`panel-fold-region${collapsed ? " panel-fold-region--collapsed" : ""}`}>
-        <div className="panel-fold-region-inner">
+        <div ref={contentRef} className="panel-fold-region-inner">
           {directions.length > 1 ? (
             <div className="corner-panel-tabs">
               {directions.map((candidateDirection) => (
@@ -271,70 +287,152 @@ export default function CornerPanel({
                     ).toFixed(1)}km`}
               </div>
 
-              <div className="corner-performance-summary" aria-label="Corner performance summary">
-                <span className="corner-performance-summary-label">SUMMARY</span>
-                {comparisonMode ? (
-                  loadedRides.slice(1).map((ride) => {
-                    const current = selectedRow.entries.find(
-                      (entry) => entry.rideId === ride.id
-                    )?.metrics;
-                    return (
-                      <p key={ride.id}>
-                        <i style={{ background: ride.color }} />
-                        {comparisonCornerSummary(
-                          ride.comparison.slot,
-                          current,
-                          selectedBaseline
-                        )}
-                      </p>
-                    );
-                  })
-                ) : selectedBaseline ? (
-                  <p>
-                    <i style={{ background: loadedRides[0].color }} />
-                    {singleCornerSummary(selectedBaseline)}
-                  </p>
-                ) : null}
+              <div className="corner-detail-tabs" role="tablist" aria-label="Corner details">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={detailTab === "coaching"}
+                  aria-controls="corner-coaching-panel"
+                  className={detailTab === "coaching" ? "corner-detail-tab--active" : ""}
+                  onClick={() => setDetailTab("coaching")}
+                >
+                  COACHING
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={detailTab === "metrics"}
+                  aria-controls="corner-metrics-panel"
+                  className={detailTab === "metrics" ? "corner-detail-tab--active" : ""}
+                  onClick={() => setDetailTab("metrics")}
+                >
+                  METRICS
+                </button>
               </div>
 
-              {comparisonMode ? (
-                <>
-                  {renderComparisonMetrics(PRIMARY_METRICS)}
-                  <details className="corner-comparison-more">
-                    <summary>More measurements</summary>
-                    {renderComparisonMetrics(MORE_METRICS, "corner-comparison-metrics--more")}
-                    <p>Lean is estimated from GPS speed and road-centerline radius.</p>
-                  </details>
-                </>
-              ) : (
-                <div className="corner-panel-detail-grid">
-                  <div className="corner-panel-detail-row corner-panel-detail-row--header">
-                    <span className="corner-panel-detail-label" />
-                    {loadedRides.map((loaded) => (
-                      <span
-                        key={loaded.id}
-                        className="corner-panel-detail-swatch"
-                        style={{ "--ride-color": loaded.color } as CSSProperties}
-                      />
-                    ))}
+              <section
+                id="corner-coaching-panel"
+                role="tabpanel"
+                className={`corner-detail-panel${
+                  detailTab === "coaching" ? " corner-detail-panel--active" : ""
+                }`}
+                hidden={detailTab !== "coaching"}
+              >
+                <div className="corner-story">
+                  <div>
+                    <strong>CORNER STORY</strong>
+                    <span>Riders are synchronized by position through the bend.</span>
                   </div>
-                  {SINGLE_METRICS.map((metric) => (
-                    <div key={metric.key} className="corner-panel-detail-row">
-                      <span className="corner-panel-detail-label">{metric.label}</span>
-                      {loadedRides.map((loaded) => {
-                        const entry = selectedRow.entries.find(
-                          (candidate) => candidate.rideId === loaded.id
-                        );
-                        return (
-                          <span key={loaded.id} className="corner-panel-detail-value">
-                            {entry ? formatMetric(entry.metrics, metric, true) : "—"}
-                          </span>
-                        );
-                      })}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (playbackEngine.playing && playbackEngine.mode === "corner") {
+                        playbackEngine.togglePlay();
+                      } else {
+                        playbackEngine.playCorner(selectedRow.corner);
+                      }
+                    }}
+                  >
+                    {playbackEngine.playing && playbackEngine.mode === "corner"
+                      ? "PAUSE"
+                      : "REPLAY"}
+                  </button>
+                </div>
+
+                <div className="corner-coaching" aria-label="Corner coaching summary">
+                  {coachingInsights.map((insight) => (
+                    <div
+                      key={insight.label}
+                      className={`corner-coaching-item corner-coaching-item--${insight.tone}`}
+                    >
+                      <span>{insight.label}</span>
+                      <strong>{insight.value}</strong>
+                      <p>{insight.detail}</p>
                     </div>
                   ))}
                 </div>
-              )}
+
+                <div className="corner-minimum-location" aria-label="Minimum speed location comparison">
+                  <span className="corner-minimum-location-title">MINIMUM SPEED POINT</span>
+                  {loadedRides.map((ride, index) => {
+                    const metrics = selectedMetrics[index];
+                    const baselineDistance = selectedMetrics[0]
+                      ? selectedMetrics[0].minimumSpeedProgress *
+                        selectedMetrics[0].cornerLengthMeters
+                      : null;
+                    const distance = metrics
+                      ? metrics.minimumSpeedProgress * metrics.cornerLengthMeters
+                      : null;
+                    const delta =
+                      distance !== null && baselineDistance !== null
+                        ? distance - baselineDistance
+                        : null;
+                    return (
+                      <div key={ride.id}>
+                        <span style={{ color: ride.color }}>{ride.comparison.slot}</span>
+                        <strong>{metrics ? minimumSpeedLocation(metrics) : "—"}</strong>
+                        <small>
+                          {index === 0
+                            ? "BASELINE"
+                            : delta === null
+                              ? "NO DATA"
+                              : Math.abs(delta) < 1
+                                ? "SAME POINT"
+                                : `${Math.abs(delta).toFixed(0)} m ${delta < 0 ? "earlier" : "later"}`}
+                        </small>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section
+                id="corner-metrics-panel"
+                role="tabpanel"
+                className={`corner-detail-panel${
+                  detailTab === "metrics" ? " corner-detail-panel--active" : ""
+                }`}
+                hidden={detailTab !== "metrics"}
+              >
+                {comparisonMode ? (
+                  <>
+                    {renderComparisonMetrics(PRIMARY_METRICS)}
+                    <details className="corner-comparison-more">
+                      <summary>More measurements</summary>
+                      {renderComparisonMetrics(MORE_METRICS, "corner-comparison-metrics--more")}
+                      <p>Lean is estimated from GPS speed and road-centerline radius.</p>
+                    </details>
+                  </>
+                ) : (
+                  <div className="corner-panel-detail-grid">
+                    <div className="corner-panel-detail-row corner-panel-detail-row--header">
+                      <span className="corner-panel-detail-label" />
+                      {loadedRides.map((loaded) => (
+                        <span
+                          key={loaded.id}
+                          className="corner-panel-detail-swatch"
+                          style={{ "--ride-color": loaded.color } as CSSProperties}
+                        />
+                      ))}
+                    </div>
+                    {SINGLE_METRICS.map((metric) => (
+                      <div key={metric.key} className="corner-panel-detail-row">
+                        <span className="corner-panel-detail-label">{metric.label}</span>
+                        {loadedRides.map((loaded) => {
+                          const entry = selectedRow.entries.find(
+                            (candidate) => candidate.rideId === loaded.id
+                          );
+                          return (
+                            <span key={loaded.id} className="corner-panel-detail-value">
+                              {entry ? formatMetric(entry.metrics, metric, true) : "—"}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
             </div>
           )}
 

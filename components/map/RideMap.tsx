@@ -1089,6 +1089,7 @@ export default function RideMap({
     const markers = rideMarkersRef.current;
     const speedLabels = speedLabelMarkersRef.current;
     const leadRideId = loadedRides[0]?.id;
+    const latestRideId = loadedRides.at(-1)?.id;
 
     const unsubscribe = playbackEngine.subscribe((states) => {
       const activeIds = new Set(states.map((s) => s.rideId));
@@ -1157,6 +1158,10 @@ export default function RideMap({
         });
 
         const loaded = loadedRides.find((r) => r.id === state.rideId);
+        const isCornerGhost =
+          playbackEngine.mode === "corner" &&
+          loadedRides.length > 1 &&
+          state.rideId !== latestRideId;
 
         let marker = markers.get(state.rideId);
         if (!marker) {
@@ -1170,6 +1175,9 @@ export default function RideMap({
         } else {
           marker.setLngLat(position);
         }
+        marker
+          .getElement()
+          .classList.toggle("ride-rider-marker--ghost", isCornerGhost);
 
         // A small floating "NN mph" chip above the marker, like a
         // broadcast timing-tower readout — deliberately its own Marker
@@ -1187,6 +1195,9 @@ export default function RideMap({
         } else {
           speedLabel.setLngLat(position);
         }
+        speedLabel
+          .getElement()
+          .classList.toggle("ride-speed-label--ghost", isCornerGhost);
         speedLabel.getElement().textContent = `${Math.round(state.speedMps * MPS_TO_MPH)} mph`;
 
         const directionSign = trace.direction === "forward" ? 1 : -1;
@@ -1302,7 +1313,7 @@ export default function RideMap({
 
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playbackEngine.subscribe, loadedRides]);
+  }, [playbackEngine.subscribe, playbackEngine.mode, loadedRides]);
 
   return (
     <div

@@ -1,10 +1,23 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import CornerPanel from "@/components/panel/CornerPanel";
 import { buildComparisonRides } from "@/lib/gpx/comparison";
 
 import { makePass, makeRide, testCorner } from "./fixtures";
+
+const playbackEngine = {
+  hasPlayableRides: true,
+  playing: false,
+  finishedRideIds: new Set<string>(),
+  allFinished: false,
+  mode: "route" as const,
+  togglePlay: vi.fn(),
+  playCorner: vi.fn(),
+  reset: vi.fn(),
+  subscribe: vi.fn(() => () => {}),
+  getStates: vi.fn(() => []),
+};
 
 function renderPanel(
   rides: ReturnType<typeof makeRide>[],
@@ -20,6 +33,7 @@ function renderPanel(
       directions={[direction]}
       direction={direction}
       onChangeDirection={vi.fn()}
+      playbackEngine={playbackEngine}
     />
   );
 }
@@ -57,11 +71,47 @@ describe("CornerPanel modes", () => {
     );
 
     expect(screen.getByLabelText("Comparison order").textContent).toContain("CLATEST");
-    expect(screen.getByLabelText("Corner performance summary").textContent).toContain(
-      "C was 4.5 mph faster on entry"
+    expect(screen.getByLabelText("Corner coaching summary").textContent).toContain(
+      "PREPARATION"
+    );
+    expect(screen.getByLabelText("Minimum speed location comparison").textContent).toContain(
+      "C50% through"
     );
     expect(screen.getAllByText("+2.2").length).toBeGreaterThan(0);
     expect(screen.getAllByText("+4.5").length).toBeGreaterThan(0);
+  });
+
+  it("starts a synchronized corner story from the selected corner", () => {
+    playbackEngine.playCorner.mockClear();
+    renderPanel(
+      [
+        makeRide("baseline", [makePass({ startTimeMs: 1000 })]),
+        makeRide("latest", [makePass({ startTimeMs: 2000 })]),
+      ],
+      { selected: true }
+    );
+
+    screen.getByRole("button", { name: "REPLAY" }).click();
+
+    expect(playbackEngine.playCorner).toHaveBeenCalledWith(testCorner);
+  });
+
+  it("separates coaching from raw corner metrics", () => {
+    renderPanel(
+      [makeRide("only", [makePass({ startTimeMs: 1000 })])],
+      { selected: true }
+    );
+
+    const coachingTab = screen.getByRole("tab", { name: "COACHING" });
+    const metricsTab = screen.getByRole("tab", { name: "METRICS" });
+    expect(coachingTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector("#corner-metrics-panel")?.hasAttribute("hidden")).toBe(true);
+
+    fireEvent.click(metricsTab);
+
+    expect(metricsTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector("#corner-coaching-panel")?.hasAttribute("hidden")).toBe(true);
+    expect(document.querySelector("#corner-metrics-panel")?.hasAttribute("hidden")).toBe(false);
   });
 
   it("uses blanks when a comparison pass lacks corner coverage", () => {

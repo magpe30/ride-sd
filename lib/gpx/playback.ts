@@ -57,6 +57,49 @@ function stateAtRecordedTime(
   };
 }
 
+export function ridePlaybackStateAtArcLength(
+  rideId: string,
+  speedProfile: readonly SpeedSample[],
+  targetArcLengthMeters: number,
+  finished = false
+): RidePlaybackState {
+  const sorted = [...speedProfile].sort(
+    (a, b) => a.arcLengthMeters - b.arcLengthMeters
+  );
+  const first = sorted[0];
+  const last = sorted.at(-1);
+  if (!first || !last) {
+    return {
+      rideId,
+      arcLengthMeters: targetArcLengthMeters,
+      timeMs: 0,
+      speedMps: 0,
+      finished: true,
+    };
+  }
+
+  const arcLengthMeters = Math.max(
+    first.arcLengthMeters,
+    Math.min(last.arcLengthMeters, targetArcLengthMeters)
+  );
+  let upperIndex = sorted.findIndex(
+    (sample) => sample.arcLengthMeters >= arcLengthMeters
+  );
+  if (upperIndex < 0) upperIndex = sorted.length - 1;
+  const upper = sorted[upperIndex];
+  const lower = sorted[Math.max(0, upperIndex - 1)];
+  const span = upper.arcLengthMeters - lower.arcLengthMeters;
+  const fraction = span > 0 ? (arcLengthMeters - lower.arcLengthMeters) / span : 0;
+
+  return {
+    rideId,
+    arcLengthMeters,
+    timeMs: lower.timeMs + (upper.timeMs - lower.timeMs) * fraction,
+    speedMps: lower.speedMps + (upper.speedMps - lower.speedMps) * fraction,
+    finished,
+  };
+}
+
 export function initialRidePlaybackState(
   rideId: string,
   pass: Pass,

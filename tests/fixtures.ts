@@ -24,6 +24,9 @@ export function makeMetrics(
     exitSpeedMps: minSpeedMps + 2,
     speedLostMps: 3,
     speedGainedMps: 2,
+    minimumSpeedArcLengthMeters: corner.apexArcLengthMeters,
+    minimumSpeedProgress: 0.5,
+    speedRangeMps: 4,
     estimatedLeanAngleDegrees: 24,
   };
 }
