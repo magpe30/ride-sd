@@ -4,7 +4,8 @@
 // untouched. Re-run after refreshing base-liberty.json from
 // https://tiles.openfreemap.org/styles/liberty if OpenFreeMap ships a schema
 // change.
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const baseStylePath = fileURLToPath(
@@ -130,6 +131,7 @@ const styled = {
   layers: base.layers.map(applyRules),
 };
 
+await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, JSON.stringify(styled, null, 2) + "\n");
 
 console.log(`Wrote ${outputPath}`);
